@@ -1,1 +1,9 @@
-{"name":"incident-desk-prototype","private":true,"type":"module","scripts":{"start":"node server.js","test":"node --test domain.test.js"}}
+{
+  "name": "incident-desk-prototype",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test domain.test.js"
+  }
+}
