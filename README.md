@@ -1,6 +1,6 @@
 # OOP group project: Incident_desk
 
-An interactive IT service management prototype for our OOP group project, with incident workflows, employee/technician/admin views, improvement proposals, and a café-themed light/dark interface.
+An interactive IT service management prototype for our OOP group project, with incident workflows, employee/technician/admin views, improvement proposals, and an 8-bit light/dark interface.
 
 ## Quick start
 
@@ -88,7 +88,7 @@ Each group member still runs a separate local server. Data is shared between int
 
 ## Scope
 
-The café palette supports light and dark appearances. The compact sun/moon switch in the top bar remembers your choice. Incident reports also include an optional **Suggested improvement**. The assigned technician can accept or decline it with a note, then mark accepted work as implemented. These decisions appear in the incident, audit timeline, and notification log; accepting a proposal does not claim the change has already been made. Existing incidents and browser data remain compatible.
+The 8-bit palette supports light and dark appearances. The compact sun/moon switch in the top bar remembers your choice. Incident reports also include an optional **Suggested improvement**. The assigned technician can accept or decline it with a note, then mark accepted work as implemented. These decisions appear in the incident, audit timeline, and notification log; accepting a proposal does not claim the change has already been made. Existing incidents and browser data remain compatible.
 
 This is a local Node.js prototype for design review, not the final Spring Boot/React/PostgreSQL implementation. Role switching simulates different users; it is not authentication or a security boundary. Incident data, policies, audit events and notifications are persisted by the localhost server in a local JSON file, with a browser backup. Use **Reset demo** to restore sample data. Existing notes are escaped before display. Internal notes are hidden from the Employee view, but all demo data remains inspectable through the local prototype API and data file. The simulated email log never sends real email. SLA checks run while the page is open and on reload, not in a background service. Targets use elapsed time; SLA configuration changes apply retroactively in this prototype. Service attention uses incident counts, not live infrastructure monitoring. Technician availability and service metadata are seeded read-only for this review. Domain logic is isolated for the later backend design. A system font fallback works if Google Fonts is unavailable.
 

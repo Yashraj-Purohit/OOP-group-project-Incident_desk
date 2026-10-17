@@ -24,18 +24,19 @@ Use GitHub issues for proposed features or bugs. Include the preview role, scree
 
 ## File guide
 
-| File | Responsibility |
-| --- | --- |
-| `index.html` | Page entry point and saved appearance initialization |
-| `styles.css` | Café palette, light/dark styling, and responsive layout |
-| `app.js` | Screens, forms, browser storage, and simulated workflows |
-| `domain.js` | Priority, assignment, lifecycle, SLA, and proposal rules |
-| `domain.test.js` | Domain behavior checks |
-| `server.js` | Local HTTP server and API routes on port 4173 |
-| `ticket-store.js` | Persistent shared data, queued writes, terminal actions |
-| `terminal-session.js` | Shared interactive command and report flow |
-| `cli.js` | Real terminal client, run with `npm run cli` |
-| `terminal.test.js` | Persistence, concurrency, visibility, and terminal flow checks |
+| File                  | Responsibility                                                    |
+| --------------------- | ----------------------------------------------------------------- |
+| `index.html`          | Page entry point and saved appearance initialization              |
+| `styles.css`          | 8-bit palette, light/dark styling, and responsive layout          |
+| `app.js`              | Screens, forms, browser storage, and simulated workflows          |
+| `domain.js`           | Priority, assignment, lifecycle, SLA, and proposal rules          |
+| `domain.test.js`      | Domain behavior checks                                            |
+| `server.js`           | Local HTTP server and API routes on port 4173                     |
+| `ticket-store.js`     | Persistent shared data, queued writes, terminal actions           |
+| `terminal-session.js` | Shared interactive command and report flow                        |
+| `cli.js`              | Real terminal client, run with `npm run cli`                      |
+| `terminal.test.js`    | Persistence, concurrency, visibility, and terminal flow checks    |
+| `app.test.js`         | Navigation and terminal integration checks across the three roles |
 
 The Administrator, Technician, and Employee selector is a demo control. It does not implement real login or server-side authorization. Email notifications are simulated.
 

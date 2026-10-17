@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test domain.test.js terminal.test.js",
+    "test": "node --test domain.test.js terminal.test.js app.test.js",
     "cli": "node cli.js"
   },
   "bin": {

@@ -403,24 +403,13 @@ function nav() {
           "Knowledge base",
         ]
       : role === "Technician"
-        ? [
-            "Overview",
-            "Incidents",
-            "Knowledge base",
-          ]
-        : [
-            "Overview",
-            "Incidents",
-            "Knowledge base",
-          ];
-  list.push(["Terminal", ">_"]);
+        ? ["Overview", "Incidents", "Knowledge base"]
+        : ["Overview", "Incidents", "Knowledge base"];
+  list.push("Terminal");
   return /* HTML */ `
     <aside class="sidebar">
-      <div class="brand">
-        
-        Incident Desk
-      </div>
-      
+      <div class="brand">Incident Desk</div>
+
       <nav>
         ${list
           .map(
@@ -502,9 +491,7 @@ function metrics() {
         .map(
           ([label, value, detail, icon]) => /* HTML */ `
             <div class="stat">
-              <div class="stat-label">
-                ${label}
-                </div>
+              <div class="stat-label">${label}</div>
               <div class="stat-value">${value}</div>
               <div class="stat-detail">${detail}</div>
             </div>
@@ -786,10 +773,10 @@ function overview() {
     (role === "Employee"
       ? /* HTML */ `
           <div class="hero">
-            
             <h2>Something not working?</h2>
             <p>
-              Describe what went wrong and we will pass it to the right technician. Every update appears here.
+              Describe what went wrong and we will pass it to the right
+              technician. Every update appears here.
             </p>
             ${createButton("Report a problem", "create", "primary")}
           </div>
@@ -852,8 +839,8 @@ function proposalSection(i) {
       </div>
       <p class="proposal-text">${escapeHtml(p.text)}</p>
       <p class="small-text">
-        Proposed by ${escapeHtml(i.reporter)}, Reviewed separately from
-        incident resolution
+        Proposed by ${escapeHtml(i.reporter)}, Reviewed separately from incident
+        resolution
       </p>
       ${p.reviewer
         ? /* HTML */ `
@@ -1130,7 +1117,7 @@ function reports() {
   return (
     heading(
       "Reports & insights",
-      "Summaries based on the sample incidents in this browser.",
+      "Summaries based on the shared localhost incidents.",
       createButton("Export incidents CSV", "export"),
     ) +
     metrics() +
@@ -1329,10 +1316,7 @@ function auditPage() {
 
 function knowledge() {
   return (
-    heading(
-      "Knowledge base",
-      "Common fixes and past resolutions.",
-    ) +
+    heading("Knowledge base", "Common fixes and past resolutions.") +
     /* HTML */ `
       <section class="panel">
         ${[

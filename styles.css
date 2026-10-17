@@ -1170,39 +1170,39 @@ dialog::backdrop {
   }
 }
 
-/* Terminal: a warm command workspace, independent of the page appearance. */
+/* Terminal shares the team's 8-bit palette, square borders, and typography. */
 .terminal-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 270px;
+  grid-template-columns: minmax(0, 1fr) 290px;
   gap: 22px;
   align-items: start;
 }
 .terminal-window {
-  background: #261e18;
-  border: 1px solid #62503e;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 14px 35px #3a27151a;
+  --console-bg: #000058;
+  --console-ink: #fcfcfc;
+  --console-line: #6888fc;
+  background: var(--console-bg);
+  border: 3px solid var(--outline);
+  box-shadow: var(--shadow);
+  min-width: 0;
 }
 .terminal-chrome {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
-  padding: 15px 18px;
-  background: #34291f;
-  color: #bca68e;
-  font:
-    11px ui-monospace,
-    monospace;
-  border-bottom: 1px solid #574331;
+  padding: 14px 16px;
+  background: var(--sidebar);
+  color: var(--on-sidebar);
+  font: 10px/1.8 var(--pixel);
+  border-bottom: 3px solid var(--outline);
 }
 .terminal-lights {
-  color: #bd9772;
-  letter-spacing: 4px;
+  color: var(--yellow);
+  letter-spacing: 3px;
 }
 .terminal-connection {
   margin-left: auto;
-  color: #b9ccb4;
 }
 .terminal-log {
   min-height: 340px;
@@ -1214,33 +1214,27 @@ dialog::backdrop {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 0 0 18px;
-  color: #e8d8c3;
-  font:
-    12px/1.8 ui-monospace,
-    SFMono-Regular,
-    Consolas,
-    monospace;
+  color: var(--console-ink);
+  font: 20px/1.3 var(--body);
 }
 .terminal-entry.input {
-  color: #c3a17c;
+  color: #fce000;
 }
 .terminal-entry.error {
-  color: #f1af99;
+  color: #fcaa98;
 }
 .terminal-entry.success {
-  color: #c4d9b7;
+  color: #b8f8b8;
 }
 .terminal-command {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 15px 18px;
-  border-top: 1px solid #574331;
-  color: #d9bb96;
-  background: #2e241c;
-  font:
-    12px ui-monospace,
-    monospace;
+  padding: 14px 16px;
+  border-top: 2px solid var(--console-line);
+  color: #fce000;
+  background: var(--console-bg);
+  font: 20px var(--body);
 }
 .terminal-command label {
   flex-shrink: 0;
@@ -1251,17 +1245,17 @@ dialog::backdrop {
   border: 0;
   background: transparent;
   padding: 8px 0;
-  color: #fff2df;
-  outline-offset: 3px;
+  color: var(--console-ink);
 }
 .terminal-command input::placeholder {
-  color: #a18d76;
+  color: #b8c8fc;
 }
 .terminal-run {
-  background: #d7b793;
-  color: #322315;
+  background: #fce000;
+  color: #000000;
+  border: 2px solid var(--outline);
   padding: 8px 10px;
-  border-radius: 5px;
+  box-shadow: 2px 2px 0 var(--outline);
 }
 .terminal-example {
   display: block;
@@ -1269,17 +1263,13 @@ dialog::backdrop {
   text-align: left;
   background: transparent;
   padding: 12px 0;
-  border-bottom: 1px solid var(--line);
-  color: var(--blue);
-  font:
-    12px ui-monospace,
-    monospace;
+  border-bottom: 1px solid var(--outline);
+  color: var(--blue-deep);
+  font: 20px var(--body);
 }
 .terminal-example span {
   display: block;
-  font:
-    11px/1.7 "DM Sans",
-    sans-serif;
+  font: 18px/1.3 var(--body);
   color: var(--muted);
   margin-top: 5px;
 }
@@ -1288,15 +1278,15 @@ dialog::backdrop {
 }
 .command-reference-group h3 {
   margin-bottom: 4px;
-  color: var(--muted);
-  font-size: 12px;
+  color: var(--ink);
+  font-size: 9px;
 }
 .terminal-guide .terminal-example code {
   display: inline;
   padding: 0;
-  border-radius: 0;
   background: transparent;
   color: inherit;
+  font: inherit;
   white-space: normal;
   overflow-wrap: anywhere;
 }
@@ -1305,14 +1295,10 @@ dialog::backdrop {
 }
 .terminal-guide code {
   display: block;
-  background: #ede1d2;
-  color: #6d4d34;
+  background: var(--soft);
+  color: var(--ink);
   padding: 12px;
-  border-radius: 6px;
-}
-:root[data-theme="dark"] .terminal-guide code {
-  background: #3c3026;
-  color: #e0c5a5;
+  font: 20px var(--body);
 }
 @media (max-width: 1150px) {
   .terminal-layout {
@@ -1326,7 +1312,7 @@ dialog::backdrop {
     padding: 12px;
   }
   .terminal-command input {
-    width: calc(100% - 60px);
+    width: calc(100% - 70px);
     flex: auto;
   }
   .terminal-command label {
@@ -1337,6 +1323,6 @@ dialog::backdrop {
   }
   .terminal-chrome {
     gap: 8px;
-    font-size: 10px;
+    font-size: 9px;
   }
 }
