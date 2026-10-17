@@ -144,7 +144,7 @@ function notify(i, title) {
   for (const channel of ["In-app", "Email simulation"]) {
     appData.notifications.unshift({
       title,
-      text: `INC-${i.id} · ${i.title}`,
+      text: `INC-${i.id}, ${i.title}`,
       time: getCurrentTime(),
       audience: i.reporter,
       technician: i.technician,
@@ -164,37 +164,37 @@ function nav() {
   const list =
     role === "Administrator"
       ? [
-          ["Overview", "▦"],
-          ["Incidents", "▤"],
-          ["IT services", "◇"],
-          ["Technicians", "♧"],
-          ["Reports", "▥"],
-          ["SLA & assignment", "⚙"],
-          ["Audit log", "◷"],
-          ["Knowledge base", "▧"],
+          "Overview",
+          "Incidents",
+          "IT services",
+          "Technicians",
+          "Reports",
+          "SLA & assignment",
+          "Audit log",
+          "Knowledge base",
         ]
       : role === "Technician"
         ? [
-            ["Overview", "▦"],
-            ["Incidents", "▤"],
-            ["Knowledge base", "▧"],
+            "Overview",
+            "Incidents",
+            "Knowledge base",
           ]
         : [
-            ["Overview", "▦"],
-            ["Incidents", "▤"],
-            ["Knowledge base", "▧"],
+            "Overview",
+            "Incidents",
+            "Knowledge base",
           ];
   return /* HTML */ `
     <aside class="sidebar">
       <div class="brand">
-        <span class="brand-mark">◇</span>
+        
         Incident Desk
       </div>
-      <div class="nav-label">WORKSPACE</div>
+      
       <nav>
         ${list
           .map(
-            ([name, icon]) => /* HTML */ `
+            (name) => /* HTML */ `
               <button
                 class="nav-button ${page === name ||
                 (selected && name === "Incidents")
@@ -202,7 +202,6 @@ function nav() {
                   : ""}"
                 data-page="${escapeHtml(name)}"
               >
-                <span class="icon" aria-hidden="true">${icon}</span>
                 ${name}${name === "Incidents"
                   ? /* HTML */ `
                       <span class="count">
@@ -219,7 +218,7 @@ function nav() {
         <span class="dot"></span>
         Local demo environment
         <br />
-        <span>OOP Project · I-ITSM</span>
+        <span>OOP Project, I-ITSM</span>
       </div>
     </aside>
   `;
@@ -231,10 +230,10 @@ function heading(title, sub, actions = "") {
       <div>
         <div class="eyebrow">
           ${role === "Employee"
-            ? "EMPLOYEE PORTAL"
+            ? "Employee view"
             : role === "Technician"
-              ? "SUPPORT WORKSPACE"
-              : "OPERATIONS WORKSPACE"}
+              ? "Technician view"
+              : "Administrator view"}
         </div>
         <h1>${title}</h1>
         <p class="subtitle">${sub}</p>
@@ -252,18 +251,18 @@ function metrics() {
   );
   const resolved = all.filter((i) => !active(i));
   const stats = [
-    ["Open incidents", open.length, "Awaiting or receiving support", "▤"],
+    ["Open incidents", open.length, "Not yet resolved", "▤"],
     [
       "Critical incidents",
       open.filter((i) => i.priority === "P1").length,
-      "High business impact",
+      "Priority P1",
       "!",
     ],
     ["SLA breaches", breached.length, "Response or resolution missed", "◷"],
     [
       "Resolved incidents",
       resolved.length,
-      "Resolved, verified, or closed",
+      "Resolved, verified or closed",
       "✓",
     ],
   ];
@@ -275,8 +274,7 @@ function metrics() {
             <div class="stat">
               <div class="stat-label">
                 ${label}
-                <span class="stat-icon">${icon}</span>
-              </div>
+                </div>
               <div class="stat-value">${value}</div>
               <div class="stat-detail">${detail}</div>
             </div>
@@ -339,7 +337,7 @@ function rows() {
                   ${escapeHtml(i.title)}
                 </button>
                 <div class="incident-id">
-                  INC-${i.id} · ${escapeHtml(i.category)}
+                  INC-${i.id}, ${escapeHtml(i.category)}
                 </div>
               </td>
               <td>${createStatusBadge(i.priority, i.priority)}</td>
@@ -397,7 +395,7 @@ function queue() {
           <p class="subtitle">
             ${role === "Employee"
               ? "Your requests and their latest updates."
-              : "Keep the most important work moving."}
+              : "Start with the highest priority items."}
           </p>
         </div>
         <span class="small-text">${getVisibleIncidents().length} total</span>
@@ -418,7 +416,7 @@ function queue() {
           type="search"
           id="search"
           aria-label="Search incidents"
-          placeholder="⌕  Search incidents…"
+          placeholder="Search incidents"
           value="${escapeHtml(filters.q || "")}"
         />
         ${selectFilter("priority", "Priority", [
@@ -458,10 +456,10 @@ function queue() {
         <table>
           <thead>
             <tr>
-              <th>INCIDENT</th>
-              <th>PRIORITY</th>
-              <th>STATUS</th>
-              <th>ASSIGNEE</th>
+              <th>Incident</th>
+              <th>Priority</th>
+              <th>Status</th>
+              <th>Assignee</th>
               <th>SLA</th>
             </tr>
           </thead>
@@ -544,27 +542,26 @@ function overview() {
   return (
     heading(
       role === "Employee"
-        ? "Hello, Ananya. How can IT help?"
+        ? "Hi Ananya, how can we help?"
         : role === "Technician"
-          ? "Your support workbench"
+          ? "Your queue"
           : "Service operations",
       role === "Employee"
-        ? "A simpler way to get help and follow your requests."
+        ? "Report a problem and follow it until it is fixed."
         : role === "Technician"
-          ? "Your assigned incidents, priorities, and next actions."
-          : "A clear view of incidents, service health, and your team.",
-      createButton("＋ Report incident", "create", "primary"),
+          ? "Your assigned incidents and what to do next."
+          : "Open incidents, service health, and team workload.",
+      createButton("Report incident", "create", "primary"),
     ) +
     (role === "Employee"
       ? /* HTML */ `
           <div class="hero">
-            <div class="eyebrow">WE’RE HERE TO HELP</div>
+            
             <h2>Something not working?</h2>
             <p>
-              Tell us what happened. We’ll find the right technician and keep
-              you updated from report to resolution.
+              Describe what went wrong and we will pass it to the right technician. Every update appears here.
             </p>
-            ${createButton("Create a support request →", "create", "primary")}
+            ${createButton("Report a problem", "create", "primary")}
           </div>
         `
       : "") +
@@ -575,17 +572,16 @@ function overview() {
         <div class="side-stack">
           <section class="alert-card">
             <h3>
-              ◷
               ${alerts.length
                 ? alerts.length + " incidents need attention"
-                : "No immediate SLA alerts"}
+                : "Nothing needs attention right now"}
             </h3>
             <p>
               ${alerts.length
-                ? "Response or resolution deadlines need a closer look."
-                : "Your current incident queue is within its monitored targets."}
+                ? "Some response or resolution deadlines are close or missed."
+                : "Everything in your queue is within its targets."}
             </p>
-            ${createButton("Review SLA alerts →", "sla-alerts", "small")}
+            ${createButton("Review alerts", "sla-alerts", "small")}
           </section>
           ${role === "Employee"
             ? /* HTML */ `
@@ -626,7 +622,7 @@ function proposalSection(i) {
       </div>
       <p class="proposal-text">${escapeHtml(p.text)}</p>
       <p class="small-text">
-        Proposed by ${escapeHtml(i.reporter)} · Reviewed separately from
+        Proposed by ${escapeHtml(i.reporter)}, Reviewed separately from
         incident resolution
       </p>
       ${p.reviewer
@@ -688,15 +684,15 @@ function decideProposal(decision) {
         ${decision === "Implemented"
           ? "Implementation details"
           : "Decision note"}
-        <span class="small-text">Optional · visible to the reporter</span>
+        <span class="small-text">Optional, visible to the reporter</span>
         <textarea
           name="decisionNote"
           maxlength="2000"
           placeholder="${decision === "Declined"
-            ? "Explain why this change is not being taken forward…"
+            ? "Explain why this change is not being taken forward..."
             : decision === "Implemented"
-              ? "Describe the change you made…"
-              : "Share your next steps…"}"
+              ? "Describe the change you made..."
+              : "Share your next steps..."}"
         ></textarea>
       </label>
     `,
@@ -728,7 +724,7 @@ function detail() {
   const s = sla(i, getCurrentTime(), appData.policies);
   const next = nextStatus(i, role);
   const notes = i.notes.filter((n) => role !== "Employee" || !n.internal);
-  return `${heading("Incident workspace", "One place for context, collaboration, and resolution.", createButton("← Back to incidents", "back"))}<div class="detail-grid"><section class="panel"><div class="detail-header"><span class="small-text">INC-${i.id} · ${escapeHtml(i.service)}</span><h2>${escapeHtml(i.title)}</h2><div class="pill-row">${createStatusBadge(i.priority)}${createStatusBadge(i.status)}${i.escalated ? createStatusBadge("Escalated", "breached") : ""}</div></div><div class="detail-section"><h3>Description</h3><p>${escapeHtml(i.description)}</p><div class="facts" style="margin-top:22px">${[
+  return `${heading("Incident workspace", "Everything about this incident in one place.", createButton("Back to incidents", "back"))}<div class="detail-grid"><section class="panel"><div class="detail-header"><span class="small-text">INC-${i.id}, ${escapeHtml(i.service)}</span><h2>${escapeHtml(i.title)}</h2><div class="pill-row">${createStatusBadge(i.priority)}${createStatusBadge(i.status)}${i.escalated ? createStatusBadge("Escalated", "breached") : ""}</div></div><div class="detail-section"><h3>Description</h3><p>${escapeHtml(i.description)}</p><div class="facts" style="margin-top:22px">${[
     ["Reported by", i.reporter],
     ["Assigned technician", i.technician || "Unassigned"],
     ["Category", i.category],
@@ -767,7 +763,7 @@ function detail() {
                 <div class="row">
                   <strong>${escapeHtml(n.author)}</strong>
                   <span class="small-text">
-                    ${formatDateTime(n.time)}${n.internal ? " · Internal" : ""}
+                    ${formatDateTime(n.time)}${n.internal ? ", Internal" : ""}
                   </span>
                 </div>
                 <p>${escapeHtml(n.text)}</p>
@@ -786,11 +782,11 @@ function detail() {
                 name="note"
                 required
                 maxlength="2000"
-                placeholder="Share an update…"
+                placeholder="Add an update"
               ></textarea>
             </label>
             ${role !== "Employee"
-              ? '<label class="check-field"><input type="checkbox" name="internal"> Internal note · visible to support only</label>'
+              ? '<label class="check-field"><input type="checkbox" name="internal"> Internal note, visible to support only</label>'
               : ""}
             <div class="actions">
               ${createButton("Post note", "post-note", "primary small")}
@@ -818,7 +814,7 @@ function detail() {
       (h) => /* HTML */ `
         <div class="event">
           <p>${escapeHtml(h.text)}</p>
-          <time>${formatDateTime(h.time)} · ${escapeHtml(h.actor)}</time>
+          <time>${formatDateTime(h.time)}, ${escapeHtml(h.actor)}</time>
         </div>
       `,
     )
@@ -827,7 +823,7 @@ function detail() {
 
 function servicesPage() {
   return (
-    heading("IT services", "The services your organization depends on.") +
+    heading("IT services", "Services supported by the IT team.") +
     /* HTML */ `
       <div class="service-grid">
         ${services
@@ -837,7 +833,6 @@ function servicesPage() {
             ).length;
             return /* HTML */ `
               <section class="panel service-card">
-                <span class="stat-icon">◇</span>
                 <h3>${escapeHtml(s.name)}</h3>
                 <p>
                   ${escapeHtml(s.owner)}
@@ -851,7 +846,7 @@ function servicesPage() {
                     n + " active incidents",
                     n ? "at-risk" : "on-track",
                   )}${createButton(
-                    "View incidents →",
+                    "View incidents",
                     "service-incidents",
                     "small",
                     `data-service="${escapeHtml(s.name)}"`,
@@ -868,7 +863,7 @@ function servicesPage() {
 
 function techniciansPage() {
   return (
-    heading("Technicians", "Skills, availability, and active work.") +
+    heading("Technicians", "Skills and current workload.") +
     /* HTML */ `
       <div class="service-grid">
         ${technicians
@@ -877,7 +872,7 @@ function techniciansPage() {
               <section class="panel service-card">
                 <span class="avatar">${initials(t.name)}</span>
                 <h3>${t.name}</h3>
-                <p>${t.skills.join(" · ")}</p>
+                <p>${t.skills.join(", ")}</p>
                 ${createStatusBadge("Available", "on-track")}
                 <p>
                   ${appData.incidents.filter(
@@ -886,7 +881,7 @@ function techniciansPage() {
                   active incidents
                 </p>
                 ${createButton(
-                  "View workload →",
+                  "View workload",
                   "technician-incidents",
                   "small",
                   `data-technician="${t.name}"`,
@@ -905,7 +900,7 @@ function reports() {
   return (
     heading(
       "Reports & insights",
-      "Operational summaries calculated from your demo incidents.",
+      "Summaries based on the sample incidents in this browser.",
       createButton("Export incidents CSV", "export"),
     ) +
     metrics() +
@@ -947,14 +942,14 @@ function settings() {
   return (
     heading(
       "SLA & assignment",
-      "Configure the behavior of this local prototype.",
+      "Response targets and how incidents are assigned.",
     ) +
     /* HTML */ `
       <div class="content-grid">
         <section class="panel">
           <div class="panel-head">
             <h2>Service level targets</h2>
-            <span class="small-text">Elapsed minutes · 24/7 clock</span>
+            <span class="small-text">Elapsed minutes, 24/7 clock</span>
           </div>
           <div class="panel-body">
             <form id="policy-form">
@@ -962,9 +957,9 @@ function settings() {
                 <table>
                   <thead>
                     <tr>
-                      <th>PRIORITY</th>
-                      <th>RESPONSE (MIN)</th>
-                      <th>RESOLUTION (MIN)</th>
+                      <th>Priority</th>
+                      <th>Response (min)</th>
+                      <th>Resolution (min)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1064,17 +1059,17 @@ function auditPage() {
     .flatMap((i) => i.history.map((h) => ({ ...h, id: i.id })))
     .sort((a, b) => b.time - a.time);
   return (
-    heading("Audit log", "The history of actions across every incident.") +
+    heading("Audit log", "Every recorded action, newest first.") +
     /* HTML */ `
       <section class="panel">
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>TIME</th>
-                <th>INCIDENT</th>
-                <th>ACTOR</th>
-                <th>ACTION</th>
+                <th>Time</th>
+                <th>Incident</th>
+                <th>Actor</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -1106,7 +1101,7 @@ function knowledge() {
   return (
     heading(
       "Knowledge base",
-      "Helpful first steps and previously resolved issues.",
+      "Common fixes and past resolutions.",
     ) +
     /* HTML */ `
       <section class="panel">
@@ -1149,7 +1144,7 @@ function notifications() {
       n.technician === getCurrentUser(),
   );
   return (
-    heading("Notifications", "In-app activity and simulated outgoing email.") +
+    heading("Notifications", "In-app updates and simulated emails.") +
     /* HTML */ `
       <section class="panel">
         ${list.length
@@ -1157,14 +1152,11 @@ function notifications() {
               .map(
                 (n) => /* HTML */ `
                   <div class="notification">
-                    <span class="stat-icon">
-                      ${n.channel === "Email simulation" ? "✉" : "◷"}
-                    </span>
                     <div>
                       <h3>${escapeHtml(n.title)}</h3>
                       <p>${escapeHtml(n.text)}</p>
                       <span class="small-text">
-                        ${formatDateTime(n.time)} · ${escapeHtml(n.channel)} ·
+                        ${formatDateTime(n.time)}, ${escapeHtml(n.channel)},
                         ${n.channel === "Email simulation"
                           ? "Not sent externally"
                           : "Demo inbox"}
@@ -1220,8 +1212,8 @@ function render() {
     Incidents: () =>
       heading(
         role === "Employee" ? "My incidents" : "Incidents",
-        "Search, filter, and follow every step of an incident.",
-        createButton("＋ Report incident", "create", "primary"),
+        "Search and filter every incident.",
+        createButton("Report incident", "create", "primary"),
       ) + queue(),
     "IT services": servicesPage,
     Technicians: techniciansPage,
@@ -1261,7 +1253,7 @@ function render() {
               data-page="Notifications"
               aria-label="Open notifications"
             >
-              ♧
+              Alerts
               <span class="notification-dot"></span>
             </button>
             <span class="avatar" title="${getCurrentUser()}">
@@ -1273,11 +1265,11 @@ function render() {
           ${selected ? detail() : (pages[page] || overview)()}
           <footer class="footer">
             <span>
-              Incident Desk · Local prototype · Sample data saved in this
+              Incident Desk, Local prototype, Sample data saved in this
               browser
             </span>
             <span>
-              ${escapeHtml(getCurrentUser())} ·
+              ${escapeHtml(getCurrentUser())},
               ${createButton("Reset demo", "reset", "small")}
             </span>
           </footer>
@@ -1356,13 +1348,13 @@ function create() {
           required
           minlength="10"
           maxlength="5000"
-          placeholder="Describe the issue, error, and affected users…"
+          placeholder="Describe the issue, error, and affected users..."
         ></textarea>
       </label>
       <label class="field">
         Suggested improvement
         <span class="small-text">
-          Optional · propose a change to the existing system
+          Optional, propose a change to the existing system
         </span>
         <textarea
           name="proposal"
@@ -1468,7 +1460,7 @@ function create() {
   const preview = () => {
     const s = services.find((s) => s.name === getElement("#new-service").value);
     getElement("#new-preview").textContent =
-      `Suggested priority: ${priority(getElement("#new-impact").value, getElement("#new-urgency").value, s.criticality)} · Category: ${s.category} · Assignment: ${appData.strategy}`;
+      `Suggested priority: ${priority(getElement("#new-impact").value, getElement("#new-urgency").value, s.criticality)}, Category: ${s.category}, Assignment: ${appData.strategy}`;
     const ds = duplicates(
       getElement("#new-title").value,
       s.name,
@@ -1477,7 +1469,7 @@ function create() {
     getElement("#duplicate-preview").innerHTML = ds.length
       ? /* HTML */ `
           <div class="callout">
-            Possible duplicate: INC-${ds[0].id} — ${escapeHtml(ds[0].title)}
+            Possible duplicate: INC-${ds[0].id}: ${escapeHtml(ds[0].title)}
             <br />
             <span class="small-text">
               Compare with the existing incident before submitting a separate
@@ -1839,3 +1831,13 @@ setInterval(() => {
     }
   }
 }, 30000);
+// Loading screen: keep it up briefly so the animation is seen, then fade it out.
+const splash = getElement("#splash");
+if (splash) {
+  const minimum = new Promise((resolve) => setTimeout(resolve, 1200));
+  const fonts = document.fonts ? document.fonts.ready : Promise.resolve();
+  Promise.all([minimum, fonts]).then(() => {
+    splash.classList.add("hide");
+    setTimeout(() => splash.remove(), 450);
+  });
+}

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Incident Desk · Local prototype</title>
+    <title>Incident Desk</title>
     <script>
       (() => {
         let theme;
@@ -20,6 +20,10 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <div id="splash" role="status" aria-live="polite">
+      <img src="loader.gif" alt="Animated ticket character" />
+      <p>Loading Incident Desk...</p>
+    </div>
     <div id="app"></div>
     <dialog id="modal"></dialog>
     <div id="toast" role="status"></div>

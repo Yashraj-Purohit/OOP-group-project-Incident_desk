@@ -7,6 +7,7 @@ const assets = {
   "/styles.css": ["styles.css", "text/css"],
   "/app.js": ["app.js", "text/javascript"],
   "/domain.js": ["domain.js", "text/javascript"],
+  "/loader.gif": ["loader.gif", "image/gif"],
 };
 const server = http.createServer(async (req, res) => {
   const item = assets[new URL(req.url, "http://localhost").pathname];
