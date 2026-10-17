@@ -1220,3 +1220,154 @@ h1,
     transition: none;
   }
 }
+
+/* Terminal: a warm command workspace, independent of the page appearance. */
+.terminal-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 270px;
+  gap: 22px;
+  align-items: start;
+}
+.terminal-window {
+  background: #261e18;
+  border: 1px solid #62503e;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 14px 35px #3a27151a;
+}
+.terminal-chrome {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 15px 18px;
+  background: #34291f;
+  color: #bca68e;
+  font:
+    11px ui-monospace,
+    monospace;
+  border-bottom: 1px solid #574331;
+}
+.terminal-lights {
+  color: #bd9772;
+  letter-spacing: 4px;
+}
+.terminal-connection {
+  margin-left: auto;
+  color: #b9ccb4;
+}
+.terminal-log {
+  min-height: 340px;
+  max-height: 490px;
+  overflow-y: auto;
+  padding: 20px;
+}
+.terminal-entry {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0 0 18px;
+  color: #e8d8c3;
+  font:
+    12px/1.8 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+}
+.terminal-entry.input {
+  color: #c3a17c;
+}
+.terminal-entry.error {
+  color: #f1af99;
+}
+.terminal-entry.success {
+  color: #c4d9b7;
+}
+.terminal-command {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 18px;
+  border-top: 1px solid #574331;
+  color: #d9bb96;
+  background: #2e241c;
+  font:
+    12px ui-monospace,
+    monospace;
+}
+.terminal-command label {
+  flex-shrink: 0;
+}
+.terminal-command input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 8px 0;
+  color: #fff2df;
+  outline-offset: 3px;
+}
+.terminal-command input::placeholder {
+  color: #a18d76;
+}
+.terminal-run {
+  background: #d7b793;
+  color: #322315;
+  padding: 8px 10px;
+  border-radius: 5px;
+}
+.terminal-example {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--blue);
+  font:
+    12px ui-monospace,
+    monospace;
+}
+.terminal-example span {
+  display: block;
+  font:
+    11px/1.7 "DM Sans",
+    sans-serif;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.terminal-guide code {
+  display: block;
+  background: #ede1d2;
+  color: #6d4d34;
+  padding: 12px;
+  border-radius: 6px;
+}
+:root[data-theme="dark"] .terminal-guide code {
+  background: #3c3026;
+  color: #e0c5a5;
+}
+@media (max-width: 1150px) {
+  .terminal-layout {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 600px) {
+  .terminal-command {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 12px;
+  }
+  .terminal-command input {
+    width: calc(100% - 60px);
+    flex: auto;
+  }
+  .terminal-command label {
+    width: 100%;
+  }
+  .terminal-log {
+    padding: 15px;
+  }
+  .terminal-chrome {
+    gap: 8px;
+    font-size: 10px;
+  }
+}

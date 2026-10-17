@@ -1,3 +1,4 @@
+import { TerminalSession } from "./terminal-session.js";
 import {
   services,
   technicians,
@@ -11,7 +12,7 @@ import {
   seed,
   reviewProposal,
 } from "./domain.js";
-// Browser storage: load saved demo data or create the sample incidents.
+// Keep a browser backup; the localhost server is the shared source of truth.
 const KEY = "incident-desk-prototype-v1";
 let appData;
 try {
@@ -23,8 +24,8 @@ try {
   appData = seed();
 }
 // Current screen and the user role selected in the preview.
-let role = "Administrator";
-let page = "Overview";
+let role = location.hash === "#terminal" ? "Employee" : "Administrator";
+let page = location.hash === "#terminal" ? "Terminal" : "Overview";
 let selected = null;
 let tab = "All incidents";
 let filters = {};
@@ -126,14 +127,226 @@ function toast(text) {
   );
 }
 
-function save() {
+let revision = 0;
+let pendingSaves = 0;
+let saveGeneration = 0;
+let saveQueue = Promise.resolve();
+let connected = false;
+
+async function requestApi(path, method = "GET", body) {
+  let response;
   try {
-    localStorage.setItem(KEY, JSON.stringify(appData));
+    response = await fetch(path, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : {},
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(10000),
+    });
   } catch {
-    toast(
-      "Browser storage is unavailable. Changes will last for this session only.",
+    throw Error(
+      "The local server is unavailable. Your browser backup has been kept. Restart npm start, then refresh.",
     );
   }
+  const value = await response.json();
+  if (!response.ok) {
+    throw Error(value.error || "Could not complete the request.");
+  }
+  return value;
+}
+
+function save() {
+  const data = structuredClone(appData);
+  const generation = saveGeneration;
+  try {
+    localStorage.setItem(KEY, JSON.stringify(data));
+  } catch {}
+  pendingSaves += 1;
+  saveQueue = saveQueue
+    .then(async () => {
+      if (generation !== saveGeneration) {
+        return;
+      }
+      try {
+        const result = await requestApi("/api/state", "PUT", {
+          data,
+          revision,
+        });
+        revision = result.revision;
+      } catch (error) {
+        saveGeneration += 1;
+        toast(error.message);
+        try {
+          const fresh = await requestApi("/api/state");
+          appData = fresh.data;
+          revision = fresh.revision;
+          render();
+        } catch {}
+      }
+    })
+    .finally(() => {
+      pendingSaves -= 1;
+    });
+  return saveQueue;
+}
+
+async function refreshState(redraw = true) {
+  if (pendingSaves) {
+    return;
+  }
+  const record = await requestApi("/api/state");
+  connected = true;
+  if (record.revision !== revision) {
+    appData = record.data;
+    revision = record.revision;
+    try {
+      localStorage.setItem(KEY, JSON.stringify(appData));
+    } catch {}
+    if (redraw && page !== "Terminal") {
+      render();
+    }
+  }
+}
+
+const terminalSession = new TerminalSession(async (input) => {
+  await saveQueue;
+  const result = await requestApi("/api/terminal", "POST", input);
+  await refreshState(false);
+  return result;
+}, role);
+let terminalBusy = false;
+const terminalHistory = [];
+let terminalHistoryIndex = 0;
+
+function terminalPage() {
+  return (
+    heading(
+      "Terminal",
+      "A command line for your IT requests, connected to the same incident dashboard.",
+    ) +
+    /* HTML */ `
+      <div class="terminal-layout">
+        <section class="terminal-window" aria-label="Incident Desk terminal">
+          <div class="terminal-chrome">
+            <span class="terminal-lights" aria-hidden="true">● ● ●</span>
+            <span>incidentdesk / localhost</span>
+            <span class="terminal-connection">
+              ${connected ? "Connected" : "Offline"}
+            </span>
+          </div>
+          <div
+            class="terminal-log"
+            id="terminal-log"
+            role="log"
+            aria-live="polite"
+            aria-relevant="additions"
+          >
+            ${terminalSession.entries
+              .map(
+                (entry) => /* HTML */ `
+                  <pre class="terminal-entry ${entry.kind}">
+${escapeHtml(entry.text)}</pre
+                  >
+                `,
+              )
+              .join("")}
+          </div>
+          <form id="terminal-form" class="terminal-command">
+            <label for="terminal-input">
+              ${escapeHtml(terminalSession.prompt)}
+            </label>
+            <input
+              id="terminal-input"
+              name="command"
+              aria-label="Terminal command"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="${terminalSession.report
+                ? "Type your answer…"
+                : "Type help, report, or list --mine"}"
+              ${terminalBusy ? "disabled" : ""}
+            />
+            <button
+              type="submit"
+              class="terminal-run"
+              ${terminalBusy ? "disabled" : ""}
+            >
+              ${terminalBusy ? "Working…" : "Run ↵"}
+            </button>
+          </form>
+        </section>
+        <aside class="terminal-guide panel">
+          <div class="panel-head"><h2>A few commands to try</h2></div>
+          <div class="panel-body">
+            <button class="terminal-example" data-terminal-command="report">
+              report
+              <span>Report an incident step by step</span>
+            </button>
+            <button
+              class="terminal-example"
+              data-terminal-command="list --mine"
+            >
+              list --mine
+              <span>See incidents you reported</span>
+            </button>
+            <button
+              class="terminal-example"
+              data-terminal-command="view INC-1024"
+            >
+              view INC-1024
+              <span>Read an incident and its updates</span>
+            </button>
+            <button class="terminal-example" data-terminal-command="help">
+              help
+              <span>See all available commands</span>
+            </button>
+            <p class="small-text">
+              Reports are created only after you type
+              <strong>submit</strong>
+              . Use
+              <strong>cancel</strong>
+              to stop.
+            </p>
+            <h3 style="margin-top:24px">From your own terminal</h3>
+            <p class="small-text">
+              With this server running, open a terminal in the project folder:
+            </p>
+            <code>npm run cli</code>
+            <p class="small-text">
+              The CLI and website share local incident data. This is an app
+              command line, not an operating-system shell.
+            </p>
+          </div>
+        </aside>
+      </div>
+    `
+  );
+}
+
+async function runTerminalCommand(command) {
+  if (terminalBusy) {
+    return;
+  }
+  terminalBusy = true;
+  terminalHistory.push(command);
+  terminalHistoryIndex = terminalHistory.length;
+  const input = getElement("#terminal-input");
+  const button = document.querySelector("#terminal-form button");
+  if (input) {
+    input.disabled = true;
+  }
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Working…";
+  }
+  await terminalSession.send(command);
+  role = terminalSession.role;
+  terminalBusy = false;
+  render();
+  const log = getElement("#terminal-log");
+  if (log) {
+    log.scrollTop = log.scrollHeight;
+  }
+  getElement("#terminal-input")?.focus({ preventScroll: true });
 }
 
 function audit(i, text) {
@@ -184,6 +397,7 @@ function nav() {
             ["Incidents", "▤"],
             ["Knowledge base", "▧"],
           ];
+  list.push(["Terminal", ">_"]);
   return /* HTML */ `
     <aside class="sidebar">
       <div class="brand">
@@ -1230,6 +1444,7 @@ function render() {
     "Audit log": auditPage,
     "Knowledge base": knowledge,
     Notifications: notifications,
+    Terminal: terminalPage,
   };
   getElement("#app").innerHTML =
     nav() +
@@ -1272,10 +1487,7 @@ function render() {
         <main class="main">
           ${selected ? detail() : (pages[page] || overview)()}
           <footer class="footer">
-            <span>
-              Incident Desk · Local prototype · Sample data saved in this
-              browser
-            </span>
+            <span>Incident Desk · Local prototype · Shared localhost data</span>
             <span>
               ${escapeHtml(getCurrentUser())} ·
               ${createButton("Reset demo", "reset", "small")}
@@ -1592,6 +1804,27 @@ function monitor() {
 }
 
 function bindForms() {
+  const terminalForm = getElement("#terminal-form");
+  if (terminalForm) {
+    terminalForm.onsubmit = (event) => {
+      event.preventDefault();
+      runTerminalCommand(getElement("#terminal-input").value);
+    };
+    getElement("#terminal-input").onkeydown = (event) => {
+      if (["ArrowUp", "ArrowDown"].includes(event.key)) {
+        event.preventDefault();
+        terminalHistoryIndex = Math.max(
+          0,
+          Math.min(
+            terminalHistory.length,
+            terminalHistoryIndex + (event.key === "ArrowUp" ? -1 : 1),
+          ),
+        );
+        event.target.value = terminalHistory[terminalHistoryIndex] || "";
+      }
+    };
+  }
+
   const nf = getElement("#note-form");
   if (nf) {
     nf.onsubmit = (e) => {
@@ -1684,12 +1917,20 @@ document.addEventListener("click", (e) => {
   if (!b) {
     return;
   }
+  if (b.dataset.terminalCommand) {
+    getElement("#terminal-input").value = b.dataset.terminalCommand;
+    getElement("#terminal-input").focus({ preventScroll: true });
+    return;
+  }
   if (b.dataset.action === "theme") {
     toggleTheme();
     return;
   }
   if (b.dataset.page) {
     page = b.dataset.page;
+    if (page === "Terminal") {
+      terminalSession.setRole(role);
+    }
     selected = null;
     filters = {};
     tab = "All incidents";
@@ -1803,6 +2044,7 @@ document.addEventListener("click", (e) => {
 document.addEventListener("change", (e) => {
   if (e.target.id === "role") {
     role = e.target.value;
+    terminalSession.setRole(role);
     page = "Overview";
     selected = null;
     filters = {};
@@ -1825,17 +2067,44 @@ document.addEventListener("input", (e) => {
     getElement("#incident-rows").innerHTML = rows();
   }
 });
-// Start the page and periodically check SLA deadlines.
-monitor();
-render();
-setInterval(() => {
-  const changed = monitor();
+// Connect to shared localhost storage. Import the previous browser demo once.
+async function startApp() {
+  try {
+    let previous;
+    try {
+      previous = JSON.parse(localStorage.getItem(KEY));
+    } catch {}
+    const record = await requestApi("/api/bootstrap", "POST", {
+      data: previous?.version === 1 ? previous : null,
+    });
+    appData = record.data;
+    revision = record.revision;
+    connected = true;
+    monitor();
+  } catch (error) {
+    toast(error.message);
+  }
+  render();
+  if (page === "Terminal") {
+    getElement("#terminal-input")?.focus({ preventScroll: true });
+  }
+}
+await startApp();
+setInterval(async () => {
   if (
-    !getElement("#modal").open &&
-    !document.activeElement.matches("input,textarea,select")
+    pendingSaves ||
+    getElement("#modal").open ||
+    document.querySelector("textarea")?.value
   ) {
-    if (changed || page === "Overview" || page === "Incidents") {
+    return;
+  }
+  try {
+    const focused = document.activeElement.matches("input,textarea,select");
+    await refreshState(!focused);
+    if (page !== "Terminal" && !focused && monitor()) {
       render();
     }
+  } catch {
+    connected = false;
   }
-}, 30000);
+}, 2500);

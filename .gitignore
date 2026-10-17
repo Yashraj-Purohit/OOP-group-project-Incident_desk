@@ -8,3 +8,5 @@ coverage/
 preview.png
 dark-mode-preview.png
 cafe-preview.png
+
+.local-data/
