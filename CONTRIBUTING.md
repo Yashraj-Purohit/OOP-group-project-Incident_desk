@@ -10,7 +10,7 @@ Install Node.js 18 or newer. Clone the repository using its GitHub **Code** butt
 npm start
 ```
 
-Open http://localhost:4173. No npm install, database, or API key is needed. Each member's browser stores its own demo data; browser changes do not sync to GitHub or to other members.
+Open http://localhost:4173. No npm install, database, or API key is needed. The website and CLI share data through the local server. Each member's server has its own `.local-data/incidents.json`; incident data does not sync to GitHub or to other members.
 
 ## Make a change
 
@@ -31,7 +31,11 @@ Use GitHub issues for proposed features or bugs. Include the preview role, scree
 | `app.js` | Screens, forms, browser storage, and simulated workflows |
 | `domain.js` | Priority, assignment, lifecycle, SLA, and proposal rules |
 | `domain.test.js` | Domain behavior checks |
-| `server.js` | Local HTTP server on port 4173 |
+| `server.js` | Local HTTP server and API routes on port 4173 |
+| `ticket-store.js` | Persistent shared data, queued writes, terminal actions |
+| `terminal-session.js` | Shared interactive command and report flow |
+| `cli.js` | Real terminal client, run with `npm run cli` |
+| `terminal.test.js` | Persistence, concurrency, visibility, and terminal flow checks |
 
 The Administrator, Technician, and Employee selector is a demo control. It does not implement real login or server-side authorization. Email notifications are simulated.
 

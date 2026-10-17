@@ -4,6 +4,13 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test domain_test.js"
+    "test": "node --test domain.test.js terminal.test.js",
+    "cli": "node cli.js"
+  },
+  "bin": {
+    "incidentdesk": "./cli.js"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
