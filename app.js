@@ -1,4 +1,4 @@
-import { TerminalSession } from "./terminal-session.js";
+import { TerminalSession, getCommandReference } from "./terminal-session.js";
 import {
   services,
   technicians,
@@ -218,6 +218,7 @@ const terminalHistory = [];
 let terminalHistoryIndex = 0;
 
 function terminalPage() {
+  const reference = getCommandReference(role);
   return (
     heading(
       "Terminal",
@@ -275,36 +276,51 @@ ${escapeHtml(entry.text)}</pre
           </form>
         </section>
         <aside class="terminal-guide panel">
-          <div class="panel-head"><h2>A few commands to try</h2></div>
+          <div class="panel-head"><h2>${escapeHtml(reference.title)}</h2></div>
           <div class="panel-body">
-            <button class="terminal-example" data-terminal-command="report">
-              report
-              <span>Report an incident step by step</span>
-            </button>
-            <button
-              class="terminal-example"
-              data-terminal-command="list --mine"
-            >
-              list --mine
-              <span>See incidents you reported</span>
-            </button>
-            <button
-              class="terminal-example"
-              data-terminal-command="view INC-1024"
-            >
-              view INC-1024
-              <span>Read an incident and its updates</span>
-            </button>
-            <button class="terminal-example" data-terminal-command="help">
-              help
-              <span>See all available commands</span>
-            </button>
             <p class="small-text">
-              Reports are created only after you type
+              ${escapeHtml(getCurrentUser())} · ${escapeHtml(role)}
+              <br />
+              Choose a command to insert it, then enter any needed details and
+              run it.
+            </p>
+            ${reference.sections
+              .map(
+                (section) => /* HTML */ `
+                  <section
+                    class="command-reference-group"
+                    aria-label="${escapeHtml(section.title)}"
+                  >
+                    <h3>${escapeHtml(section.title)}</h3>
+                    ${section.commands
+                      .map((command) => {
+                        const enabled =
+                          command.context === "review"
+                            ? terminalSession.context === "review"
+                            : command.context === "draft"
+                              ? terminalSession.context !== "command"
+                              : terminalSession.context === "command";
+                        return /* HTML */ `
+                          <button
+                            class="terminal-example"
+                            data-terminal-command="${escapeHtml(command.input)}"
+                            ${enabled ? "" : "disabled"}
+                          >
+                            <code>${escapeHtml(command.syntax)}</code>
+                            <span>${escapeHtml(command.description)}</span>
+                          </button>
+                        `;
+                      })
+                      .join("")}
+                  </section>
+                `,
+              )
+              .join("")}
+            <p class="small-text">
+              Report controls become available at the relevant step. Creating an
+              incident always requires
               <strong>submit</strong>
-              . Use
-              <strong>cancel</strong>
-              to stop.
+              .
             </p>
             <h3 style="margin-top:24px">From your own terminal</h3>
             <p class="small-text">

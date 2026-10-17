@@ -24,7 +24,7 @@ A clickable model for the OOP I-ITSM project. No additional package installation
 
 ## Terminal interface
 
-Open **Terminal** in the sidebar or visit **http://localhost:4173/#terminal**. Try:
+Open **Terminal** in the sidebar or visit **http://localhost:4173/#terminal**. Its command reference and `help` output adapt to your current role: employees see their submitted incidents, technicians see their assigned queue, and administrators see organization-wide incidents. The reference also lists identity/help commands and the report controls available at each step. Try:
 
 ```text
 report

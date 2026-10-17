@@ -4,7 +4,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TicketStore, terminalAction } from "./ticket-store.js";
-import { TerminalSession, safeText } from "./terminal-session.js";
+import {
+  TerminalSession,
+  safeText,
+  getCommandReference,
+  getHelp,
+} from "./terminal-session.js";
 import { seed } from "./domain.js";
 
 const report = {
@@ -171,4 +176,71 @@ test("cancel and invalid wizard inputs never submit, and list filters reach the 
 
 test("terminal control characters are stripped without losing normal line breaks", () => {
   assert.equal(safeText("hello\u001b[31m\u0000\nworld"), "hello[31m\nworld");
+});
+
+test("command references describe each role's queue and show only implemented commands", () => {
+  const expected = {
+    Employee: "List your submitted incidents",
+    Technician: "List incidents assigned to you",
+    Administrator: "List all incidents across the organization",
+  };
+  const implemented = new Set([
+    "report",
+    "services",
+    "list",
+    "view",
+    "back",
+    "cancel",
+    "edit",
+    "submit",
+    "whoami",
+    "help",
+    "clear",
+    "role",
+  ]);
+  for (const [role, description] of Object.entries(expected)) {
+    const reference = getCommandReference(role);
+    const commands = reference.sections.flatMap((section) => section.commands);
+    assert.equal(reference.title, role + " commands");
+    assert.equal(
+      commands.find((command) => command.syntax === "list").description,
+      description,
+    );
+    assert.ok(
+      commands.every((command) =>
+        implemented.has(command.input.trim().split(" ")[0]),
+      ),
+    );
+    assert.ok(commands.some((command) => command.syntax === "whoami"));
+    assert.ok(
+      commands.some(
+        (command) =>
+          command.syntax === "submit" && command.context === "review",
+      ),
+    );
+    assert.ok(getHelp(role).includes(description));
+  }
+});
+
+test("help updates after role switching and report controls track the active step", async (t) => {
+  const store = await fixture(t);
+  const session = new TerminalSession((input) => terminalAction(store, input));
+  assert.equal(session.context, "command");
+  await session.send("help");
+  assert.match(session.entries.at(-1).text, /Employee commands/);
+  await session.send("role technician");
+  await session.send("help");
+  assert.match(session.entries.at(-1).text, /Technician commands/);
+  assert.match(session.entries.at(-1).text, /List incidents assigned to you/);
+  await session.send("role admin");
+  await session.send("help");
+  assert.match(session.entries.at(-1).text, /Administrator commands/);
+  assert.match(
+    session.entries.at(-1).text,
+    /List all incidents across the organization/,
+  );
+  await session.send("report");
+  assert.equal(session.context, "draft");
+  await session.send("cancel");
+  assert.equal(session.context, "command");
 });

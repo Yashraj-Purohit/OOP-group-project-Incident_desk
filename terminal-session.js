@@ -1,19 +1,171 @@
 // Shared command interface for the browser terminal and the real Node.js CLI.
 // Commands call our API; they never execute operating-system shell commands.
-export const HELP = `Incident Desk commands
-  help                          Show this guide
-  report                        Report an incident, step by step
-  list [--mine] [--priority P1]  List incidents visible to your role
-  view INC-1024                 View an incident and SLA status
-  services                      List affected-service choices
-  whoami                        Show your demo identity
-  role employee                 Switch demo role (also technician/admin)
-  clear                         Clear the terminal transcript
-  cancel                        Cancel a report without submitting
+// One catalog supplies both the sidebar and the CLI help output.
+// Only commands that are actually implemented are included here.
+export function getCommandReference(role) {
+  const queueDescriptions = {
+    Employee: "List your submitted incidents",
+    Technician: "List incidents assigned to you",
+    Administrator: "List all incidents across the organization",
+  };
+  const viewDescriptions = {
+    Employee: "Read one of your incidents, its updates, and SLA status",
+    Technician:
+      "Read an assigned incident, investigation notes, and SLA status",
+    Administrator: "Read any incident, its assignment, updates, and SLA status",
+  };
+  if (!queueDescriptions[role]) {
+    throw Error("Unknown preview role.");
+  }
 
-During a report, type back to revisit a field.
-At the review step, type submit, edit, or cancel.
-This is a local demo, with the same simulated roles as the website.`;
+  const reporting = {
+    title: "Report an incident",
+    commands: [
+      {
+        syntax: "report",
+        input: "report",
+        description: "Report an incident and optionally suggest an improvement",
+      },
+      {
+        syntax: "services",
+        input: "services",
+        description: "List the services you can report an issue for",
+      },
+    ],
+  };
+  const queue = {
+    title:
+      role === "Employee"
+        ? "My incidents"
+        : role === "Technician"
+          ? "My assigned queue"
+          : "Incident oversight",
+    commands: [
+      { syntax: "list", input: "list", description: queueDescriptions[role] },
+      {
+        syntax: "list --priority P1",
+        input: "list --priority P1",
+        description:
+          role === "Employee"
+            ? "Filter your incidents by priority (P1, P2, P3, or P4)"
+            : role === "Technician"
+              ? "Filter your assigned queue by priority (P1–P4)"
+              : "Filter all incidents by priority (P1–P4)",
+      },
+      {
+        syntax: "view <incident-id>",
+        input: "view ",
+        description: viewDescriptions[role] + "; for example, view INC-1024",
+      },
+    ],
+  };
+  if (role === "Employee" || role === "Administrator") {
+    queue.commands.splice(1, 0, {
+      syntax: "list --mine",
+      input: "list --mine",
+      description:
+        role === "Employee"
+          ? "Explicitly list incidents you reported"
+          : "Show incidents you personally reported rather than the full queue",
+    });
+  }
+  const controls = {
+    title: "While reporting",
+    commands: [
+      {
+        syntax: "back",
+        input: "back",
+        description: "Return to the previous report field",
+        context: "draft",
+      },
+      {
+        syntax: "cancel",
+        input: "cancel",
+        description: "Discard the draft without creating an incident",
+        context: "draft",
+      },
+      {
+        syntax: "edit",
+        input: "edit",
+        description: "At the review step, revise the report from its title",
+        context: "review",
+      },
+      {
+        syntax: "submit",
+        input: "submit",
+        description: "At the review step, confirm and create the incident",
+        context: "review",
+      },
+    ],
+  };
+  const session = {
+    title: "Session & help",
+    commands: [
+      {
+        syntax: "whoami",
+        input: "whoami",
+        description: "Show your current role and name",
+      },
+      {
+        syntax: "help",
+        input: "help",
+        description: "Show the command reference for your current role",
+      },
+      {
+        syntax: "clear",
+        input: "clear",
+        description: "Clear the transcript without deleting any incidents",
+      },
+    ],
+  };
+  const preview = {
+    title: "Demo role switching",
+    commands: [
+      {
+        syntax: "role employee",
+        input: "role employee",
+        description: "Preview the Employee identity (Ananya Rao)",
+      },
+      {
+        syntax: "role technician",
+        input: "role technician",
+        description: "Preview the Technician identity (Asha Mehta)",
+      },
+      {
+        syntax: "role admin",
+        input: "role admin",
+        description: "Preview the Administrator identity (Arjun Nair)",
+      },
+    ],
+  };
+  return {
+    title: role + " commands",
+    sections:
+      role === "Employee"
+        ? [reporting, queue, controls, session, preview]
+        : [queue, reporting, controls, session, preview],
+  };
+}
+
+export function getHelp(role) {
+  const reference = getCommandReference(role);
+  const groups = reference.sections.map(
+    (section) =>
+      section.title +
+      "\n" +
+      section.commands
+        .map(
+          (command) => "  " + command.syntax + "\n    " + command.description,
+        )
+        .join("\n"),
+  );
+  return (
+    reference.title +
+    "\n\n" +
+    groups.join("\n\n") +
+    "\n\nCombine --mine and --priority when needed. Commands respect the selected role’s visible queue.\nRoles are demo identities, not authenticated logins."
+  );
+}
 
 export function safeText(value) {
   return String(value ?? "").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
@@ -54,6 +206,11 @@ export class TerminalSession {
         text: "INCIDENT DESK / COMMAND LINE\nShared with your incident dashboard. Type help or report to begin.",
       },
     ];
+  }
+
+  get context() {
+    if (!this.report) return "command";
+    return this.step === fields.length ? "review" : "draft";
   }
 
   get prompt() {
@@ -115,7 +272,7 @@ export class TerminalSession {
         return;
       }
       if (command === "help") {
-        return this.write(HELP);
+        return this.write(getHelp(this.role));
       }
       if (command === "clear") {
         this.entries = [];
