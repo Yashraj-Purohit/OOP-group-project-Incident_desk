@@ -1,44 +1,47 @@
 # Working together
 
-This repository contains the interactive Incident Desk prototype for our OOP group project. The final backend is still to be built.
+This repository contains the Incident Desk application (web UI, API and SQLite persistence) for our OOP group project.
 
 ## Run it locally
 
-Install Node.js 18 or newer. Clone the repository using its GitHub **Code** button, open a terminal in the cloned folder, then run:
+Install Node.js 22.13 or newer, clone the repository, then run:
 
 ```sh
 npm start
 ```
 
-Open http://localhost:4173. No npm install, database, or API key is needed. The website and CLI share data through the local server. Each member's server has its own `.local-data/incidents.json`; incident data does not sync to GitHub or to other members.
+Open http://localhost:4173 and sign in (demo accounts are listed in the README). Data lives in `.local-data/incident-desk.sqlite`, which is ignored by git: each member has their own database, and nothing syncs between computers.
 
 ## Make a change
 
 1. Pull the latest `main` branch before starting.
 2. Create a branch with a descriptive name, such as `feature/incident-search`.
-3. Edit the relevant files and refresh your localhost preview.
-4. Run `npm test` to check the domain rules.
+3. Edit the relevant files and refresh your localhost page (the server serves files from disk; restart `npm start` after backend changes).
+4. Run `npm test` and make sure everything passes.
 5. Commit and push your branch, then open a pull request into `main` for another member to review.
 
-Use GitHub issues for proposed features or bugs. Include the preview role, screen, steps, and expected result. Avoid committing passwords, API keys, real personal information, or local browser exports.
+Use GitHub issues for proposed features or bugs. Include the role, screen, steps, and expected result. Avoid committing passwords, API keys, real personal information, or database files.
 
 ## File guide
 
-| File                  | Responsibility                                                    |
-| --------------------- | ----------------------------------------------------------------- |
-| `index.html`          | Page entry point and saved appearance initialization              |
-| `styles.css`          | 8-bit palette, light/dark styling, and responsive layout          |
-| `app.js`              | Screens, forms, browser storage, and simulated workflows          |
-| `domain.js`           | Priority, assignment, lifecycle, SLA, and proposal rules          |
-| `domain.test.js`      | Domain behavior checks                                            |
-| `server.js`           | Local HTTP server and API routes on port 4173                     |
-| `ticket-store.js`     | Persistent shared data, queued writes, terminal actions           |
-| `terminal-session.js` | Shared interactive command and report flow                        |
-| `cli.js`              | Real terminal client, run with `npm run cli`                      |
-| `terminal.test.js`    | Persistence, concurrency, visibility, and terminal flow checks    |
-| `app.test.js`         | Navigation and terminal integration checks across the three roles |
+| Path | Responsibility |
+| --- | --- |
+| `index.html`, `styles.css`, `theme-init.js` | Page shell, 8-bit light/dark styling, saved theme |
+| `app.js` | Web client controller: session, navigation, dialogs, API calls |
+| `ui/views.js`, `ui/adminViews.js` | Pure view functions (state in, HTML out) for all screens |
+| `ui/api.js`, `ui/helpers.js` | API client with bearer token, escaping and formatting helpers |
+| `terminal-session.js`, `terminal-client.js`, `cli.js` | Terminal command interface for the browser and the real command line |
+| `server.js` | Starts the server (web UI and API on one port) |
+| `backend/domain/` | Incident aggregate, lifecycle states, users and roles, priority, assignment and SLA strategies |
+| `backend/intelligence/` | Duplicate detection, correlation, classification, escalation, risk, suggestions |
+| `backend/notifications/` | Notification channels, audit and notification observers |
+| `backend/persistence/` | SQLite database and repositories |
+| `backend/services/` | Use cases: incidents, administration, reports, SLA monitor |
+| `backend/http/` | Routes, authentication, error mapping, static files |
+| `backend/seed.js` | Reference data, demo accounts and sample incidents |
+| `backend/tests/`, `tests/` | Backend tests; terminal and UI view tests |
 
-The Administrator, Technician, and Employee selector is a demo control. It does not implement real login or server-side authorization. Email notifications are simulated.
+Roles are enforced on the server: every API call needs a signed-in user, and each use case checks that user's permissions. Email notifications are simulated.
 
 ## Repository access
 

@@ -1,5 +1,6 @@
 // Shared command interface for the browser terminal and the real Node.js CLI.
-// Commands call our API; they never execute operating-system shell commands.
+// Commands call the authenticated Incident Desk API (see terminal-client.js);
+// they never execute operating-system shell commands.
 // One catalog supplies both the sidebar and the CLI help output.
 // Only commands that are actually implemented are included here.
 export function getCommandReference(role) {
@@ -118,32 +119,12 @@ export function getCommandReference(role) {
       },
     ],
   };
-  const preview = {
-    title: "Demo role switching",
-    commands: [
-      {
-        syntax: "role employee",
-        input: "role employee",
-        description: "Preview the Employee identity (Ananya Rao)",
-      },
-      {
-        syntax: "role technician",
-        input: "role technician",
-        description: "Preview the Technician identity (Asha Mehta)",
-      },
-      {
-        syntax: "role admin",
-        input: "role admin",
-        description: "Preview the Administrator identity (Arjun Nair)",
-      },
-    ],
-  };
   return {
     title: role + " commands",
     sections:
       role === "Employee"
-        ? [reporting, queue, controls, session, preview]
-        : [queue, reporting, controls, session, preview],
+        ? [reporting, queue, controls, session]
+        : [queue, reporting, controls, session],
   };
 }
 
@@ -163,7 +144,7 @@ export function getHelp(role) {
     reference.title +
     "\n\n" +
     groups.join("\n\n") +
-    "\n\nCombine --mine and --priority when needed. Commands respect the selected role’s visible queue.\nRoles are demo identities, not authenticated logins."
+    "\n\nCombine --mine and --priority when needed. Commands respect what your account is allowed to see."
   );
 }
 
@@ -187,16 +168,13 @@ const prompts = [
   "What happened? (10–5000 characters):",
   "Suggested improvement (optional, press Enter to skip):",
 ];
-const identities = {
-  Employee: "Ananya Rao",
-  Technician: "Asha Mehta",
-  Administrator: "Arjun Nair",
-};
 
 export class TerminalSession {
-  constructor(api, role = "Employee") {
+  // `user` is the signed-in account: { name, role }.
+  constructor(api, user = { name: "Guest", role: "Employee" }) {
     this.api = api;
-    this.role = role;
+    this.user = user;
+    this.role = user.role;
     this.report = null;
     this.step = 0;
     this.serviceList = [];
@@ -226,17 +204,6 @@ export class TerminalSession {
     if (this.entries.length > 160) {
       this.entries.splice(0, this.entries.length - 160);
     }
-  }
-
-  setRole(role) {
-    if (role === this.role) {
-      return;
-    }
-    this.role = role;
-    this.report = null;
-    this.write(
-      `Preview role: ${role} · ${identities[role]}. Any unfinished report was cancelled.`,
-    );
   }
 
   ask() {
@@ -279,22 +246,7 @@ export class TerminalSession {
         return;
       }
       if (command === "whoami") {
-        return this.write(
-          `${this.role} · ${identities[this.role]} (demo role)`,
-        );
-      }
-      if (command === "role") {
-        const role = {
-          employee: "Employee",
-          technician: "Technician",
-          admin: "Administrator",
-          administrator: "Administrator",
-        }[words[0]?.toLowerCase()];
-        if (!role || words.length !== 1) {
-          throw Error("Use role employee, role technician, or role admin.");
-        }
-        this.setRole(role);
-        return;
+        return this.write(`${this.user.name} · ${this.role}`);
       }
       if (command === "report") {
         if (words.length) {
@@ -304,7 +256,6 @@ export class TerminalSession {
         }
         this.serviceList = await this.api({
           action: "services",
-          role: this.role,
         });
         this.report = {};
         this.step = 0;
@@ -317,7 +268,6 @@ export class TerminalSession {
       if (command === "services") {
         const services = await this.api({
           action: "services",
-          role: this.role,
         });
         return this.write(
           services
@@ -346,7 +296,6 @@ export class TerminalSession {
         }
         const incidents = await this.api({
           action: "list",
-          role: this.role,
           mine,
           priority,
         });
@@ -368,7 +317,6 @@ export class TerminalSession {
         const incident = await this.api({
           action: "view",
           id: words[0],
-          role: this.role,
         });
         let output = `INC-${incident.id} · ${incident.title}\n${incident.priority} / ${incident.status} / SLA: ${incident.sla.label}\nService: ${incident.service}\nReported by: ${incident.reporter}\nAssigned: ${incident.technician}\n\n${incident.description}`;
         if (incident.proposal) {
@@ -413,12 +361,11 @@ export class TerminalSession {
       }
       const incident = await this.api({
         action: "create",
-        role: this.role,
         report: this.report,
       });
       this.report = null;
       this.write(
-        `Created INC-${incident.id} · ${incident.priority}\nAssigned to ${incident.technician}.\nYour incident is now visible in the dashboard.\nTry: view INC-${incident.id}`,
+        `Created INC-${incident.id} · ${incident.priority}\n${incident.technician ? `Assigned to ${incident.technician}.` : "Waiting for a technician to be assigned."}\nYour incident is now visible in the dashboard.\nTry: view INC-${incident.id}`,
         "success",
       );
       return;
@@ -438,7 +385,7 @@ export class TerminalSession {
       const service =
         this.serviceList.find(
           (service) => service.name.toLowerCase() === text.toLowerCase(),
-        ) || (/^[1-5]$/.test(text) ? this.serviceList[Number(text) - 1] : null);
+        ) || (/^\d{1,3}$/.test(text) ? this.serviceList[Number(text) - 1] : null);
       if (!service) {
         throw Error(
           "Choose a service number or exact service name from the list.",
@@ -456,7 +403,6 @@ export class TerminalSession {
     if (this.step === fields.length - 1) {
       const preview = await this.api({
         action: "preview",
-        role: this.role,
         report: this.report,
       });
       this.step += 1;

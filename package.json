@@ -3,14 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.js",
-    "test": "node --test domain.test.js terminal.test.js app.test.js",
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "api": "node --disable-warning=ExperimentalWarning server.js",
+    "test": "node --disable-warning=ExperimentalWarning --test tests/*.test.js backend/tests/*.test.js",
+    "test:backend": "node --disable-warning=ExperimentalWarning --test backend/tests/*.test.js",
     "cli": "node cli.js"
   },
   "bin": {
     "incidentdesk": "./cli.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.13"
   }
 }

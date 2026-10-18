@@ -1,2112 +1,882 @@
-import { TerminalSession, getCommandReference } from "./terminal-session.js";
-import {
-  services,
-  technicians,
-  priority,
-  assign,
-  active,
-  nextStatus,
-  transition,
-  sla,
-  duplicates,
-  seed,
-  reviewProposal,
-} from "./domain.js";
-// Keep a browser backup; the localhost server is the shared source of truth.
-const KEY = "incident-desk-prototype-v1";
-let appData;
-try {
-  appData = JSON.parse(localStorage.getItem(KEY));
-  if (appData?.version !== 1 || !Array.isArray(appData.incidents)) {
-    appData = seed();
-  }
-} catch {
-  appData = seed();
-}
-// Current screen and the user role selected in the preview.
-let role = location.hash === "#terminal" ? "Employee" : "Administrator";
-let page = location.hash === "#terminal" ? "Terminal" : "Overview";
-let selected = null;
-let tab = "All incidents";
-let filters = {};
+// Incident Desk web client. Everything shown comes from the authenticated API;
+// the browser only keeps its session token (in sessionStorage) and UI state.
+// All dynamic text passes through escapeHtml before it is placed in a template.
+import { TerminalSession } from "./terminal-session.js";
+import { createTerminalApi } from "./terminal-client.js";
+import { ApiError, del, get, handleSessionExpiry, hasToken, patch, post, query, request, setToken } from "./ui/api.js";
+import { csvCell, escapeHtml } from "./ui/helpers.js";
+import { installRipples, morph } from "./ui/fx.js";
+import { auditPage, peoplePage, reportsPage, servicesPage, settingsPage } from "./ui/adminViews.js";
+import { authScreen, detail, heading, incidentQueue, incidentRows, knowledge, notifications, overview, shell, terminalPage } from "./ui/views.js";
+
+const $ = (selector) => document.querySelector(selector);
+const AUDIT_ACTIONS = [
+  "INCIDENT_CREATED", "INCIDENT_CLASSIFIED", "TECHNICIAN_ASSIGNED", "ASSIGNMENT_FAILED", "INCIDENT_ACKNOWLEDGED", "INVESTIGATION_STARTED",
+  "INCIDENT_RESOLVED", "INCIDENT_VERIFIED", "INCIDENT_REOPENED", "INCIDENT_CLOSED", "PRIORITY_CHANGED", "NOTE_ADDED", "INFO_REQUESTED",
+  "INFO_PROVIDED", "FEEDBACK_GIVEN", "PROPOSAL_SUBMITTED", "PROPOSAL_REVIEWED", "DUPLICATE_FLAGGED", "SLA_WARNING", "SLA_VIOLATED",
+  "INCIDENT_ESCALATED", "USER_CREATED", "USER_UPDATED", "SERVICE_CREATED", "SERVICE_UPDATED", "CATEGORY_SAVED", "SLA_POLICY_SAVED", "SETTINGS_CHANGED",
+];
+
+const S = {
+  menuOpen: false, user: null, page: "Overview", selected: null, tab: "All incidents", filters: {}, notifTab: "in-app",
+  ref: { services: [], categories: [], technicians: [] }, data: {}, unread: 0, openCount: undefined,
+  terminal: null, auditActions: AUDIT_ACTIONS, clockResult: "", authMode: "login", authError: "",
+};
 let noticeTimer;
+let lastSignature = "";
 
-// Small helpers used throughout the page.
-
-function getElement(selector) {
-  return document.querySelector(selector);
-}
-
-// Escape user input before inserting it into HTML.
-
-function escapeHtml(value) {
-  const replacements = {
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  };
-
-  return String(value ?? "").replace(/[&<>"']/g, (character) => {
-    return replacements[character];
-  });
-}
-
-function getCurrentTime() {
-  return Date.now() + appData.offset;
-}
-
-function getCurrentUser() {
-  if (role === "Employee") {
-    return "Ananya Rao";
-  }
-  if (role === "Technician") {
-    return "Asha Mehta";
-  }
-  return "Arjun Nair";
-}
-
-function formatDateTime(timestamp) {
-  return new Date(timestamp).toLocaleString("en-IN", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function initials(name) {
-  return name
-    .split(" ")
-    .map((part) => part[0])
-    .slice(0, 2)
-    .join("");
-}
-
-function createStatusBadge(label, style = label) {
-  const className = escapeHtml(style.toLowerCase().replaceAll(" ", "-"));
-  return /* HTML */ `
-    <span class="badge ${className}">${escapeHtml(label)}</span>
-  `;
-}
-
-function createButton(label, action, style = "", extraAttributes = "") {
-  return /* HTML */ `
-    <button class="button ${style}" data-action="${action}" ${extraAttributes}>
-      ${label}
-    </button>
-  `;
-}
-
-function getVisibleIncidents() {
-  return appData.incidents.filter((incident) => {
-    if (role === "Employee") {
-      return incident.reporter === getCurrentUser();
-    }
-    if (role === "Technician") {
-      return incident.technician === getCurrentUser();
-    }
-    return true;
-  });
-}
-
-function getSelectedIncident() {
-  return appData.incidents.find((incident) => incident.id === selected);
-}
-
-// Save data, show messages, and record activity.
-
+// ---- small utilities ----------------------------------------------------------------------
 function toast(text) {
-  getElement("#toast").textContent = text;
-  getElement("#toast").style.display = "block";
+  const el = $("#toast");
+  el.textContent = text;
+  el.style.display = "block";
   clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(
-    () => (getElement("#toast").style.display = "none"),
-    4000,
-  );
+  noticeTimer = setTimeout(() => (el.style.display = "none"), 4500);
 }
 
-let revision = 0;
-let pendingSaves = 0;
-let saveGeneration = 0;
-let saveQueue = Promise.resolve();
-let connected = false;
+const theme = () => document.documentElement.dataset.theme;
 
-async function requestApi(path, method = "GET", body) {
-  let response;
+const palette = () => document.documentElement.dataset.palette || "harbor";
+let fadeTimer;
+
+// Briefly transition colours so a theme or palette change fades instead of snapping.
+function fadeColours() {
+  const root = document.documentElement;
+  root.classList.add("theme-fade");
+  clearTimeout(fadeTimer);
+  fadeTimer = setTimeout(() => root.classList.remove("theme-fade"), 450);
+}
+
+function setPalette(id) {
+  fadeColours();
+  document.documentElement.dataset.palette = id;
   try {
-    response = await fetch(path, {
-      method,
-      headers: body ? { "Content-Type": "application/json" } : {},
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(10000),
-    });
+    localStorage.setItem("incident-desk-palette", id);
   } catch {
-    throw Error(
-      "The local server is unavailable. Your browser backup has been kept. Restart npm start, then refresh.",
-    );
+    toast("Palette changed for this session. Browser storage is unavailable.");
   }
-  const value = await response.json();
-  if (!response.ok) {
-    throw Error(value.error || "Could not complete the request.");
-  }
-  return value;
-}
-
-function save() {
-  const data = structuredClone(appData);
-  const generation = saveGeneration;
-  try {
-    localStorage.setItem(KEY, JSON.stringify(data));
-  } catch {}
-  pendingSaves += 1;
-  saveQueue = saveQueue
-    .then(async () => {
-      if (generation !== saveGeneration) {
-        return;
-      }
-      try {
-        const result = await requestApi("/api/state", "PUT", {
-          data,
-          revision,
-        });
-        revision = result.revision;
-      } catch (error) {
-        saveGeneration += 1;
-        toast(error.message);
-        try {
-          const fresh = await requestApi("/api/state");
-          appData = fresh.data;
-          revision = fresh.revision;
-          render();
-        } catch {}
-      }
-    })
-    .finally(() => {
-      pendingSaves -= 1;
-    });
-  return saveQueue;
-}
-
-async function refreshState(redraw = true) {
-  if (pendingSaves) {
-    return;
-  }
-  const record = await requestApi("/api/state");
-  connected = true;
-  if (record.revision !== revision) {
-    appData = record.data;
-    revision = record.revision;
-    try {
-      localStorage.setItem(KEY, JSON.stringify(appData));
-    } catch {}
-    if (redraw && page !== "Terminal") {
-      render();
-    }
-  }
-}
-
-const terminalSession = new TerminalSession(async (input) => {
-  await saveQueue;
-  const result = await requestApi("/api/terminal", "POST", input);
-  await refreshState(false);
-  return result;
-}, role);
-let terminalBusy = false;
-const terminalHistory = [];
-let terminalHistoryIndex = 0;
-
-function terminalPage() {
-  const reference = getCommandReference(role);
-  return (
-    heading(
-      "Terminal",
-      "A command line for your IT requests, connected to the same incident dashboard.",
-    ) +
-    /* HTML */ `
-      <div class="terminal-layout">
-        <section class="terminal-window" aria-label="Incident Desk terminal">
-          <div class="terminal-chrome">
-            <span class="terminal-lights" aria-hidden="true">● ● ●</span>
-            <span>incidentdesk / localhost</span>
-            <span class="terminal-connection">
-              ${connected ? "Connected" : "Offline"}
-            </span>
-          </div>
-          <div
-            class="terminal-log"
-            id="terminal-log"
-            role="log"
-            aria-live="polite"
-            aria-relevant="additions"
-          >
-            ${terminalSession.entries
-              .map(
-                (entry) => /* HTML */ `
-                  <pre class="terminal-entry ${entry.kind}">
-${escapeHtml(entry.text)}</pre
-                  >
-                `,
-              )
-              .join("")}
-          </div>
-          <form id="terminal-form" class="terminal-command">
-            <label for="terminal-input">
-              ${escapeHtml(terminalSession.prompt)}
-            </label>
-            <input
-              id="terminal-input"
-              name="command"
-              aria-label="Terminal command"
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="${terminalSession.report
-                ? "Type your answer…"
-                : "Type help, report, or list --mine"}"
-              ${terminalBusy ? "disabled" : ""}
-            />
-            <button
-              type="submit"
-              class="terminal-run"
-              ${terminalBusy ? "disabled" : ""}
-            >
-              ${terminalBusy ? "Working…" : "Run ↵"}
-            </button>
-          </form>
-        </section>
-        <aside class="terminal-guide panel">
-          <div class="panel-head"><h2>${escapeHtml(reference.title)}</h2></div>
-          <div class="panel-body">
-            <p class="small-text">
-              ${escapeHtml(getCurrentUser())} · ${escapeHtml(role)}
-              <br />
-              Choose a command to insert it, then enter any needed details and
-              run it.
-            </p>
-            ${reference.sections
-              .map(
-                (section) => /* HTML */ `
-                  <section
-                    class="command-reference-group"
-                    aria-label="${escapeHtml(section.title)}"
-                  >
-                    <h3>${escapeHtml(section.title)}</h3>
-                    ${section.commands
-                      .map((command) => {
-                        const enabled =
-                          command.context === "review"
-                            ? terminalSession.context === "review"
-                            : command.context === "draft"
-                              ? terminalSession.context !== "command"
-                              : terminalSession.context === "command";
-                        return /* HTML */ `
-                          <button
-                            class="terminal-example"
-                            data-terminal-command="${escapeHtml(command.input)}"
-                            ${enabled ? "" : "disabled"}
-                          >
-                            <code>${escapeHtml(command.syntax)}</code>
-                            <span>${escapeHtml(command.description)}</span>
-                          </button>
-                        `;
-                      })
-                      .join("")}
-                  </section>
-                `,
-              )
-              .join("")}
-            <p class="small-text">
-              Report controls become available at the relevant step. Creating an
-              incident always requires
-              <strong>submit</strong>
-              .
-            </p>
-            <h3 style="margin-top:24px">From your own terminal</h3>
-            <p class="small-text">
-              With this server running, open a terminal in the project folder:
-            </p>
-            <code>npm run cli</code>
-            <p class="small-text">
-              The CLI and website share local incident data. This is an app
-              command line, not an operating-system shell.
-            </p>
-          </div>
-        </aside>
-      </div>
-    `
-  );
-}
-
-async function runTerminalCommand(command) {
-  if (terminalBusy) {
-    return;
-  }
-  terminalBusy = true;
-  terminalHistory.push(command);
-  terminalHistoryIndex = terminalHistory.length;
-  const input = getElement("#terminal-input");
-  const button = document.querySelector("#terminal-form button");
-  if (input) {
-    input.disabled = true;
-  }
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Working…";
-  }
-  await terminalSession.send(command);
-  role = terminalSession.role;
-  terminalBusy = false;
-  render();
-  const log = getElement("#terminal-log");
-  if (log) {
-    log.scrollTop = log.scrollHeight;
-  }
-  getElement("#terminal-input")?.focus({ preventScroll: true });
-}
-
-function audit(i, text) {
-  i.history.push({ time: getCurrentTime(), actor: getCurrentUser(), text });
-}
-
-function notify(i, title) {
-  for (const channel of ["In-app", "Email simulation"]) {
-    appData.notifications.unshift({
-      title,
-      text: `INC-${i.id}, ${i.title}`,
-      time: getCurrentTime(),
-      audience: i.reporter,
-      technician: i.technician,
-      channel,
-    });
-  }
-}
-
-function openIncident(id) {
-  selected = Number(id);
-  page = "Incidents";
   render();
 }
-// Screen builders: each function returns the HTML for part of the interface.
 
-function nav() {
-  const list =
-    role === "Administrator"
-      ? [
-          "Overview",
-          "Incidents",
-          "IT services",
-          "Technicians",
-          "Reports",
-          "SLA & assignment",
-          "Audit log",
-          "Knowledge base",
-        ]
-      : role === "Technician"
-        ? ["Overview", "Incidents", "Knowledge base"]
-        : ["Overview", "Incidents", "Knowledge base"];
-  list.push("Terminal");
-  return /* HTML */ `
-    <aside class="sidebar">
-      <div class="brand">Incident Desk</div>
-
-      <nav>
-        ${list
-          .map(
-            (name) => /* HTML */ `
-              <button
-                class="nav-button ${page === name ||
-                (selected && name === "Incidents")
-                  ? "selected"
-                  : ""}"
-                data-page="${escapeHtml(name)}"
-              >
-                ${name}${name === "Incidents"
-                  ? /* HTML */ `
-                      <span class="count">
-                        ${getVisibleIncidents().filter(active).length}
-                      </span>
-                    `
-                  : ""}
-              </button>
-            `,
-          )
-          .join("")}
-      </nav>
-      <div class="sidebar-bottom">
-        <span class="dot"></span>
-        Local demo environment
-        <br />
-        <span>OOP Project, I-ITSM</span>
-      </div>
-    </aside>
-  `;
-}
-
-function heading(title, sub, actions = "") {
-  return /* HTML */ `
-    <div class="heading">
-      <div>
-        <div class="eyebrow">
-          ${role === "Employee"
-            ? "Employee view"
-            : role === "Technician"
-              ? "Technician view"
-              : "Administrator view"}
-        </div>
-        <h1>${title}</h1>
-        <p class="subtitle">${sub}</p>
-      </div>
-      <div class="actions">${actions}</div>
-    </div>
-  `;
-}
-
-function metrics() {
-  const all = getVisibleIncidents();
-  const open = all.filter(active);
-  const breached = all.filter(
-    (i) => sla(i, getCurrentTime(), appData.policies).label === "Breached",
-  );
-  const resolved = all.filter((i) => !active(i));
-  const stats = [
-    ["Open incidents", open.length, "Not yet resolved", "▤"],
-    [
-      "Critical incidents",
-      open.filter((i) => i.priority === "P1").length,
-      "Priority P1",
-      "!",
-    ],
-    ["SLA breaches", breached.length, "Response or resolution missed", "◷"],
-    [
-      "Resolved incidents",
-      resolved.length,
-      "Resolved, verified or closed",
-      "✓",
-    ],
-  ];
-  return /* HTML */ `
-    <div class="stats">
-      ${stats
-        .map(
-          ([label, value, detail, icon]) => /* HTML */ `
-            <div class="stat">
-              <div class="stat-label">${label}</div>
-              <div class="stat-value">${value}</div>
-              <div class="stat-detail">${detail}</div>
-            </div>
-          `,
-        )
-        .join("")}
-    </div>
-  `;
-}
-
-function filtered() {
-  return getVisibleIncidents()
-    .filter((i) => {
-      const s = sla(i, getCurrentTime(), appData.policies);
-      return (
-        (tab !== "Open" || active(i)) &&
-        (tab !== "Resolved" || !active(i)) &&
-        (!filters.q ||
-          `${i.id} ${i.title} ${i.description}`
-            .toLowerCase()
-            .includes(filters.q.toLowerCase())) &&
-        ["priority", "status", "service", "technician"].every(
-          (k) => !filters[k] || i[k] === filters[k],
-        ) &&
-        (!filters.sla || s.label === filters.sla)
-      );
-    })
-    .sort(
-      (a, b) => a.priority.localeCompare(b.priority) || b.created - a.created,
-    );
-}
-
-function selectFilter(key, placeholder, options) {
-  return /* HTML */ `
-    <select aria-label="Filter by ${key}" data-filter="${key}">
-      <option value="">${placeholder}</option>
-      ${options
-        .map(
-          (v) => /* HTML */ `
-            <option ${filters[key] === v ? "selected" : ""}>
-              ${escapeHtml(v)}
-            </option>
-          `,
-        )
-        .join("")}
-    </select>
-  `;
-}
-
-function rows() {
-  const list = filtered();
-  return list.length
-    ? list
-        .map((i) => {
-          const s = sla(i, getCurrentTime(), appData.policies);
-          return /* HTML */ `
-            <tr>
-              <td>
-                <button class="incident-link" data-incident="${i.id}">
-                  ${escapeHtml(i.title)}
-                </button>
-                <div class="incident-id">
-                  INC-${i.id}, ${escapeHtml(i.category)}
-                </div>
-              </td>
-              <td>${createStatusBadge(i.priority, i.priority)}</td>
-              <td>${createStatusBadge(i.status)}</td>
-              <td>
-                <div class="person">
-                  <span class="mini-avatar">
-                    ${initials(i.technician || "Unassigned")}
-                  </span>
-                  <span>
-                    ${escapeHtml(i.technician?.split(" ")[0] || "Unassigned")}
-                  </span>
-                </div>
-              </td>
-              <td>
-                ${createStatusBadge(s.label)}
-                <div class="incident-id">
-                  ${active(i)
-                    ? s.remaining < 0
-                      ? Math.abs(s.remaining) + "m overdue"
-                      : s.remaining + "m left"
-                    : "Resolution recorded"}
-                </div>
-              </td>
-            </tr>
-          `;
-        })
-        .join("")
-    : /* HTML */ `
-        <tr>
-          <td colspan="5">
-            <div class="empty">
-              No incidents match these
-              filters.${role === "Technician"
-                ? " Switch to Administrator to see all incidents."
-                : ""}
-            </div>
-          </td>
-        </tr>
-      `;
-}
-
-function queue() {
-  return /* HTML */ `
-    <section class="panel">
-      <div class="panel-head">
-        <div>
-          <h2>
-            ${role === "Employee"
-              ? "My incidents"
-              : role === "Technician"
-                ? "My incident queue"
-                : "Incident overview"}
-          </h2>
-          <p class="subtitle">
-            ${role === "Employee"
-              ? "Your requests and their latest updates."
-              : "Start with the highest priority items."}
-          </p>
-        </div>
-        <span class="small-text">${getVisibleIncidents().length} total</span>
-      </div>
-      <div class="tabbar">
-        ${["All incidents", "Open", "Resolved"]
-          .map(
-            (t) => /* HTML */ `
-              <button class="tab ${tab === t ? "active" : ""}" data-tab="${t}">
-                ${t}
-              </button>
-            `,
-          )
-          .join("")}
-      </div>
-      <div class="filters">
-        <input
-          type="search"
-          id="search"
-          aria-label="Search incidents"
-          placeholder="Search incidents"
-          value="${escapeHtml(filters.q || "")}"
-        />
-        ${selectFilter("priority", "Priority", [
-          "P1",
-          "P2",
-          "P3",
-          "P4",
-        ])}${selectFilter("status", "Status", [
-          "Assigned",
-          "Acknowledged",
-          "In progress",
-          "Resolved",
-          "Verified",
-          "Closed",
-        ])}${page === "Incidents"
-          ? selectFilter(
-              "service",
-              "Service",
-              services.map((s) => s.name),
-            ) +
-            selectFilter(
-              "technician",
-              "Technician",
-              technicians.map((t) => t.name),
-            ) +
-            selectFilter("sla", "SLA status", [
-              "On track",
-              "At risk",
-              "Breached",
-              "Met",
-            ])
-          : ""}${Object.values(filters).some(Boolean)
-          ? createButton("Clear", "clear-filters", "small")
-          : ""}
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Incident</th>
-              <th>Priority</th>
-              <th>Status</th>
-              <th>Assignee</th>
-              <th>SLA</th>
-            </tr>
-          </thead>
-          <tbody id="incident-rows">${rows()}</tbody>
-        </table>
-      </div>
-    </section>
-  `;
-}
-
-function workload() {
-  return /* HTML */ `
-    <section class="panel">
-      <div class="panel-head"><h2>Team workload</h2></div>
-      <div class="panel-body">
-        ${technicians
-          .map((t) => {
-            const n = appData.incidents.filter(
-              (i) => i.technician === t.name && active(i),
-            ).length;
-            return /* HTML */ `
-              <div class="workload-row">
-                <div class="workload-line">
-                  <span>${escapeHtml(t.name)}</span>
-                  <span class="small-text">${n} active</span>
-                </div>
-                <div class="bar">
-                  <div
-                    class="bar-fill"
-                    style="width:${Math.min(100, n * 20)}%"
-                  ></div>
-                </div>
-              </div>
-            `;
-          })
-          .join("")}
-      </div>
-    </section>
-  `;
-}
-
-function serviceHealth() {
-  return /* HTML */ `
-    <section class="panel">
-      <div class="panel-head"><h2>Service attention</h2></div>
-      <div class="panel-body">
-        ${services
-          .slice(0, 3)
-          .map((s) => {
-            const n = appData.incidents.filter(
-              (i) => i.service === s.name && active(i),
-            ).length;
-            return /* HTML */ `
-              <div class="status-row">
-                <span>${escapeHtml(s.name)}</span>
-                ${createStatusBadge(
-                  n ? `${n} open` : "No incidents",
-                  n ? "at-risk" : "on-track",
-                )}
-              </div>
-            `;
-          })
-          .join("")}
-        <div class="small-text" style="margin-top:10px">
-          Based on reported incidents
-        </div>
-      </div>
-    </section>
-  `;
-}
-
-function overview() {
-  const alerts = getVisibleIncidents().filter(
-    (i) =>
-      active(i) &&
-      ["At risk", "Breached"].includes(
-        sla(i, getCurrentTime(), appData.policies).label,
-      ),
-  );
-  return (
-    heading(
-      role === "Employee"
-        ? "Hi Ananya, how can we help?"
-        : role === "Technician"
-          ? "Your queue"
-          : "Service operations",
-      role === "Employee"
-        ? "Report a problem and follow it until it is fixed."
-        : role === "Technician"
-          ? "Your assigned incidents and what to do next."
-          : "Open incidents, service health, and team workload.",
-      createButton("Report incident", "create", "primary"),
-    ) +
-    (role === "Employee"
-      ? /* HTML */ `
-          <div class="hero">
-            <h2>Something not working?</h2>
-            <p>
-              Describe what went wrong and we will pass it to the right
-              technician. Every update appears here.
-            </p>
-            ${createButton("Report a problem", "create", "primary")}
-          </div>
-        `
-      : "") +
-    metrics() +
-    /* HTML */ `
-      <div class="content-grid">
-        ${queue()}
-        <div class="side-stack">
-          <section class="alert-card">
-            <h3>
-              ${alerts.length
-                ? alerts.length + " incidents need attention"
-                : "Nothing needs attention right now"}
-            </h3>
-            <p>
-              ${alerts.length
-                ? "Some response or resolution deadlines are close or missed."
-                : "Everything in your queue is within its targets."}
-            </p>
-            ${createButton("Review alerts", "sla-alerts", "small")}
-          </section>
-          ${role === "Employee"
-            ? /* HTML */ `
-                <section class="panel">
-                  <div class="panel-head"><h2>What happens next?</h2></div>
-                  <div class="panel-body small-text">
-                    <p>1. We classify and prioritize your request.</p>
-                    <p>2. A technician investigates and updates you.</p>
-                    <p>3. You verify the resolution before closure.</p>
-                  </div>
-                </section>
-              `
-            : workload()}${serviceHealth()}
-        </div>
-      </div>
-    `
-  );
-}
-
-function proposalSection(i) {
-  if (!i.proposal) {
-    return "";
-  }
-  const p = i.proposal;
-  const canReview = role === "Technician" && i.technician === getCurrentUser();
-  return /* HTML */ `
-    <section class="detail-section proposal-section">
-      <div class="proposal-heading">
-        <h3>Suggested improvement</h3>
-        ${createStatusBadge(
-          p.status,
-          p.status === "Declined"
-            ? "p4"
-            : p.status === "Implemented"
-              ? "resolved"
-              : "p2",
-        )}
-      </div>
-      <p class="proposal-text">${escapeHtml(p.text)}</p>
-      <p class="small-text">
-        Proposed by ${escapeHtml(i.reporter)}, Reviewed separately from incident
-        resolution
-      </p>
-      ${p.reviewer
-        ? /* HTML */ `
-            <div class="callout">
-              <strong>
-                ${escapeHtml(p.status)} by ${escapeHtml(p.reviewer)}
-              </strong>
-              ${p.note
-                ? /* HTML */ `
-                    <br />
-                    ${escapeHtml(p.note)}
-                  `
-                : ""}
-              <br />
-              <span class="small-text">${formatDateTime(p.reviewedAt)}</span>
-            </div>
-          `
-        : ""}${canReview && ["Proposed", "Accepted"].includes(p.status)
-        ? /* HTML */ `
-            <div class="actions" style="margin-top:14px">
-              ${p.status === "Proposed"
-                ? createButton(
-                    "Accept proposal",
-                    "proposal-accept",
-                    "primary small",
-                  ) +
-                  createButton("Decline proposal", "proposal-decline", "small")
-                : createButton(
-                    "Mark implemented",
-                    "proposal-implement",
-                    "primary small",
-                  )}
-            </div>
-            <p class="small-text">
-              Accepting a proposal records your decision. Mark it implemented
-              only after making the change.
-            </p>
-          `
-        : ""}
-    </section>
-  `;
-}
-
-function decideProposal(decision) {
-  const i = getSelectedIncident();
-  if (role !== "Technician" || i.technician !== getCurrentUser()) {
-    return;
-  }
-  modal(
-    decision === "Accepted"
-      ? "Accept proposal"
-      : decision === "Declined"
-        ? "Decline proposal"
-        : "Mark implemented",
-    /* HTML */ `
-      <div class="callout">${escapeHtml(i.proposal.text)}</div>
-      <label class="field" style="margin-top:18px">
-        ${decision === "Implemented"
-          ? "Implementation details"
-          : "Decision note"}
-        <span class="small-text">Optional, visible to the reporter</span>
-        <textarea
-          name="decisionNote"
-          maxlength="2000"
-          placeholder="${decision === "Declined"
-            ? "Explain why this change is not being taken forward..."
-            : decision === "Implemented"
-              ? "Describe the change you made..."
-              : "Share your next steps..."}"
-        ></textarea>
-      </label>
-    `,
-    (f) => {
-      reviewProposal(
-        i,
-        role,
-        getCurrentUser(),
-        decision,
-        f.get("decisionNote"),
-        getCurrentTime(),
-      );
-      audit(i, `Improvement proposal ${decision.toLowerCase()}`);
-      notify(i, `Improvement proposal ${decision.toLowerCase()}`);
-      save();
-      getElement("#modal").close();
-      render();
-      toast("Proposal decision saved.");
-    },
-  );
-}
-
-function detail() {
-  const i = getSelectedIncident();
-  if (!i || !getVisibleIncidents().includes(i)) {
-    selected = null;
-    return overview();
-  }
-  const s = sla(i, getCurrentTime(), appData.policies);
-  const next = nextStatus(i, role);
-  const notes = i.notes.filter((n) => role !== "Employee" || !n.internal);
-  return `${heading("Incident workspace", "Everything about this incident in one place.", createButton("Back to incidents", "back"))}<div class="detail-grid"><section class="panel"><div class="detail-header"><span class="small-text">INC-${i.id}, ${escapeHtml(i.service)}</span><h2>${escapeHtml(i.title)}</h2><div class="pill-row">${createStatusBadge(i.priority)}${createStatusBadge(i.status)}${i.escalated ? createStatusBadge("Escalated", "breached") : ""}</div></div><div class="detail-section"><h3>Description</h3><p>${escapeHtml(i.description)}</p><div class="facts" style="margin-top:22px">${[
-    ["Reported by", i.reporter],
-    ["Assigned technician", i.technician || "Unassigned"],
-    ["Category", i.category],
-    ["Created", formatDateTime(i.created)],
-  ]
-    .map(
-      ([k, v]) => /* HTML */ `
-        <div class="fact">
-          <label>${k}</label>
-          <span>${escapeHtml(v)}</span>
-        </div>
-      `,
-    )
-    .join(
-      "",
-    )}</div></div>${proposalSection(i)}<div class="detail-section"><h3>Priority reasoning</h3><div class="callout">Impact ${i.impact} × urgency ${i.urgency} × service criticality ${services.find((s) => s.name === i.service).criticality} = ${i.impact * i.urgency * services.find((s) => s.name === i.service).criticality}. Assigned ${i.priority} using the configured score thresholds.</div></div>${
-    i.resolution
-      ? /* HTML */ `
-          <div class="detail-section">
-            <h3>Resolution</h3>
-            <p>${escapeHtml(i.resolution)}</p>
-            ${i.feedback
-              ? /* HTML */ `
-                  <p>Employee feedback: ${escapeHtml(i.feedback)}</p>
-                `
-              : ""}
-          </div>
-        `
-      : ""
-  }<div class="detail-section"><h3>Conversation & investigation</h3>${
-    notes.length
-      ? notes
-          .map(
-            (n) => /* HTML */ `
-              <div class="note">
-                <div class="row">
-                  <strong>${escapeHtml(n.author)}</strong>
-                  <span class="small-text">
-                    ${formatDateTime(n.time)}${n.internal ? ", Internal" : ""}
-                  </span>
-                </div>
-                <p>${escapeHtml(n.text)}</p>
-              </div>
-            `,
-          )
-          .join("")
-      : "<p>No notes yet. Add information to help the investigation.</p>"
-  }${
-    i.status !== "Closed"
-      ? /* HTML */ `
-          <form id="note-form">
-            <label class="field">
-              ${role === "Employee" ? "Add information" : "Investigation note"}
-              <textarea
-                name="note"
-                required
-                maxlength="2000"
-                placeholder="Add an update"
-              ></textarea>
-            </label>
-            ${role !== "Employee"
-              ? '<label class="check-field"><input type="checkbox" name="internal"> Internal note, visible to support only</label>'
-              : ""}
-            <div class="actions">
-              ${createButton("Post note", "post-note", "primary small")}
-              <span class="small-text">
-                ${role === "Employee"
-                  ? "Visible to your support team"
-                  : "Resolution details are requested separately"}
-              </span>
-            </div>
-          </form>
-        `
-      : ""
-  }</div></section><div class="side-stack"><section class="panel"><div class="panel-head"><h2>SLA & next action</h2>${createStatusBadge(s.label)}</div><div class="panel-body"><div class="facts"><div class="fact"><label>Response deadline</label><span>${formatDateTime(s.responseDue)}</span></div><div class="fact"><label>Resolution deadline</label><span>${formatDateTime(s.resolutionDue)}</span></div></div><p class="small-text">${s.responseBreached ? "Response target missed. " : i.acknowledged ? "Response acknowledged. " : "Waiting for acknowledgement. "}${s.resolutionBreached ? "Resolution target missed." : ""}</p>${next ? createButton(next === "In progress" ? "Start investigation" : next === "Acknowledged" ? "Acknowledge incident" : next === "Resolved" ? "Provide resolution" : next === "Verified" ? "Verify resolution" : next === "Closed" ? "Close incident" : next, "transition", "primary") : ""}${
-    role === "Administrator"
-      ? /* HTML */ `
-          <div style="margin-top:12px">
-            ${createButton("Change assignment", "reassign", "small")}
-          </div>
-        `
-      : ""
-  }${role === "Employee" && i.status === "Verified" ? '<p class="small-text">Thank you. Support can now close this incident.</p>' : ""}${role === "Employee" && i.status === "Closed" && !i.feedback ? createButton("Leave feedback", "feedback", "small") : ""}</div></section><section class="panel"><div class="panel-head"><h2>Activity timeline</h2></div><div class="panel-body"><div class="timeline">${i.history
-    .slice()
-    .reverse()
-    .map(
-      (h) => /* HTML */ `
-        <div class="event">
-          <p>${escapeHtml(h.text)}</p>
-          <time>${formatDateTime(h.time)}, ${escapeHtml(h.actor)}</time>
-        </div>
-      `,
-    )
-    .join("")}</div></div></section></div></div>`;
-}
-
-function servicesPage() {
-  return (
-    heading("IT services", "Services supported by the IT team.") +
-    /* HTML */ `
-      <div class="service-grid">
-        ${services
-          .map((s) => {
-            const n = appData.incidents.filter(
-              (i) => active(i) && i.service === s.name,
-            ).length;
-            return /* HTML */ `
-              <section class="panel service-card">
-                <h3>${escapeHtml(s.name)}</h3>
-                <p>
-                  ${escapeHtml(s.owner)}
-                  <br />
-                  Category: ${s.category}
-                  <br />
-                  Business criticality: ${s.criticality} / 3
-                </p>
-                <div class="actions">
-                  ${createStatusBadge(
-                    n + " active incidents",
-                    n ? "at-risk" : "on-track",
-                  )}${createButton(
-                    "View incidents",
-                    "service-incidents",
-                    "small",
-                    `data-service="${escapeHtml(s.name)}"`,
-                  )}
-                </div>
-              </section>
-            `;
-          })
-          .join("")}
-      </div>
-    `
-  );
-}
-
-function techniciansPage() {
-  return (
-    heading("Technicians", "Skills and current workload.") +
-    /* HTML */ `
-      <div class="service-grid">
-        ${technicians
-          .map(
-            (t) => /* HTML */ `
-              <section class="panel service-card">
-                <span class="avatar">${initials(t.name)}</span>
-                <h3>${t.name}</h3>
-                <p>${t.skills.join(", ")}</p>
-                ${createStatusBadge("Available", "on-track")}
-                <p>
-                  ${appData.incidents.filter(
-                    (i) => active(i) && i.technician === t.name,
-                  ).length}
-                  active incidents
-                </p>
-                ${createButton(
-                  "View workload",
-                  "technician-incidents",
-                  "small",
-                  `data-technician="${t.name}"`,
-                )}
-              </section>
-            `,
-          )
-          .join("")}
-      </div>
-    `
-  );
-}
-
-function reports() {
-  const all = appData.incidents;
-  return (
-    heading(
-      "Reports & insights",
-      "Summaries based on the shared localhost incidents.",
-      createButton("Export incidents CSV", "export"),
-    ) +
-    metrics() +
-    /* HTML */ `
-      <div class="content-grid">
-        <section class="panel">
-          <div class="panel-head"><h2>Incidents by service</h2></div>
-          <div class="panel-body report-bars">
-            ${services
-              .map((s) => {
-                const n = all.filter((i) => i.service === s.name).length;
-                return /* HTML */ `
-                  <div class="report-bar">
-                    <div class="workload-line">
-                      <span>${s.name}</span>
-                      <span>${n} incidents</span>
-                    </div>
-                    <div class="bar">
-                      <div
-                        class="bar-fill"
-                        style="width:${all.length
-                          ? (n / all.length) * 100
-                          : 0}%"
-                      ></div>
-                    </div>
-                  </div>
-                `;
-              })
-              .join("")}
-          </div>
-        </section>
-        ${workload()}
-      </div>
-    `
-  );
-}
-
-function settings() {
-  return (
-    heading(
-      "SLA & assignment",
-      "Response targets and how incidents are assigned.",
-    ) +
-    /* HTML */ `
-      <div class="content-grid">
-        <section class="panel">
-          <div class="panel-head">
-            <h2>Service level targets</h2>
-            <span class="small-text">Elapsed minutes, 24/7 clock</span>
-          </div>
-          <div class="panel-body">
-            <form id="policy-form">
-              <div class="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Priority</th>
-                      <th>Response (min)</th>
-                      <th>Resolution (min)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${Object.entries(appData.policies)
-                      .map(
-                        ([p, t]) => /* HTML */ `
-                          <tr>
-                            <td>${createStatusBadge(p)}</td>
-                            <td>
-                              <label class="field">
-                                <input
-                                  aria-label="${p} response minutes"
-                                  name="${p}-response"
-                                  type="number"
-                                  min="1"
-                                  max="10080"
-                                  required
-                                  value="${t.response}"
-                                />
-                              </label>
-                            </td>
-                            <td>
-                              <label class="field">
-                                <input
-                                  aria-label="${p} resolution minutes"
-                                  name="${p}-resolution"
-                                  type="number"
-                                  min="1"
-                                  max="10080"
-                                  required
-                                  value="${t.resolution}"
-                                />
-                              </label>
-                            </td>
-                          </tr>
-                        `,
-                      )
-                      .join("")}
-                  </tbody>
-                </table>
-              </div>
-              <p class="small-text">
-                Changing targets recalculates deadlines for demo incidents.
-              </p>
-              <div id="policy-error" class="error" role="alert"></div>
-              <button class="button primary" type="submit">
-                Save SLA targets
-              </button>
-            </form>
-          </div>
-        </section>
-        <div class="side-stack">
-          <section class="panel">
-            <div class="panel-head"><h2>Assignment strategy</h2></div>
-            <div class="panel-body">
-              <label class="field">
-                Active strategy
-                <select id="strategy">
-                  ${["Skill based", "Least loaded"]
-                    .map(
-                      (s) => /* HTML */ `
-                        <option ${s === appData.strategy ? "selected" : ""}>
-                          ${s}
-                        </option>
-                      `,
-                    )
-                    .join("")}
-                </select>
-              </label>
-              <p class="small-text">
-                Both strategies require a matching skill and availability. Skill
-                based prefers specialists; least loaded balances active work
-                across eligible technicians.
-              </p>
-              <p class="small-text">
-                Applies to newly created incidents or reassignment.
-              </p>
-            </div>
-          </section>
-          <section class="alert-card">
-            <h3>Demo clock</h3>
-            <p>
-              Advance the simulated clock to test warnings and escalation. Real
-              time continues to pass too.
-            </p>
-            ${createButton("Advance 10 minutes", "advance", "small")}
-            <p>Clock offset: +${appData.offset / 60000} minutes</p>
-          </section>
-        </div>
-      </div>
-    `
-  );
-}
-
-function auditPage() {
-  const events = appData.incidents
-    .flatMap((i) => i.history.map((h) => ({ ...h, id: i.id })))
-    .sort((a, b) => b.time - a.time);
-  return (
-    heading("Audit log", "Every recorded action, newest first.") +
-    /* HTML */ `
-      <section class="panel">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Incident</th>
-                <th>Actor</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${events
-                .map(
-                  (h) => /* HTML */ `
-                    <tr>
-                      <td>${formatDateTime(h.time)}</td>
-                      <td>
-                        <button class="incident-link" data-incident="${h.id}">
-                          INC-${h.id}
-                        </button>
-                      </td>
-                      <td>${escapeHtml(h.actor)}</td>
-                      <td style="white-space:normal">${escapeHtml(h.text)}</td>
-                    </tr>
-                  `,
-                )
-                .join("")}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    `
-  );
-}
-
-function knowledge() {
-  return (
-    heading("Knowledge base", "Common fixes and past resolutions.") +
-    /* HTML */ `
-      <section class="panel">
-        ${[
-          [
-            "Payment portal unavailable",
-            "Check whether the service is affected for other users. Report the exact error, time, and affected department. Never include payment credentials in your incident.",
-          ],
-          [
-            "Campus Wi-Fi disconnects",
-            "Reconnect to the campus network and note your building and access point location. If multiple devices are affected, report a network incident.",
-          ],
-          [
-            "Cannot sign in",
-            "Check your account identifier and use the official password reset flow. IT will never ask you to send your password.",
-          ],
-          ...appData.incidents
-            .filter((i) => i.resolution)
-            .map((i) => [i.title, i.resolution]),
-        ]
-          .map(
-            ([title, body]) => /* HTML */ `
-              <details class="knowledge">
-                <summary>${escapeHtml(title)}</summary>
-                <p>${escapeHtml(body)}</p>
-              </details>
-            `,
-          )
-          .join("")}
-      </section>
-    `
-  );
-}
-
-function notifications() {
-  const list = appData.notifications.filter(
-    (n) =>
-      role === "Administrator" ||
-      n.audience === getCurrentUser() ||
-      n.technician === getCurrentUser(),
-  );
-  return (
-    heading("Notifications", "In-app updates and simulated emails.") +
-    /* HTML */ `
-      <section class="panel">
-        ${list.length
-          ? list
-              .map(
-                (n) => /* HTML */ `
-                  <div class="notification">
-                    <div>
-                      <h3>${escapeHtml(n.title)}</h3>
-                      <p>${escapeHtml(n.text)}</p>
-                      <span class="small-text">
-                        ${formatDateTime(n.time)}, ${escapeHtml(n.channel)},
-                        ${n.channel === "Email simulation"
-                          ? "Not sent externally"
-                          : "Demo inbox"}
-                      </span>
-                    </div>
-                  </div>
-                `,
-              )
-              .join("")
-          : '<div class="empty">No notifications yet. Create or update an incident to see them here.</div>'}
-      </section>
-    `
-  );
-}
-
-function themeToggle() {
-  return /* HTML */ `
-    <button
-      class="theme-switch"
-      role="switch"
-      data-action="theme"
-      aria-label="Dark mode"
-      aria-checked="${document.documentElement.dataset.theme === "dark"}"
-      title="Toggle dark mode"
-    >
-      <span class="theme-switch-track" aria-hidden="true">
-        <span class="theme-switch-thumb">
-          ${document.documentElement.dataset.theme === "dark" ? "☾" : "☀"}
-        </span>
-      </span>
-    </button>
-  `;
-}
-
-function toggleTheme() {
-  const dark = document.documentElement.dataset.theme !== "dark";
+function setMode(mode) {
+  if (mode === theme()) return;
+  const dark = mode === "dark";
+  fadeColours();
   document.documentElement.dataset.theme = dark ? "dark" : "light";
   try {
     localStorage.setItem("incident-desk-theme", dark ? "dark" : "light");
   } catch {
     toast("Theme changed for this session. Browser storage is unavailable.");
   }
-  const button = document.querySelector('[data-action="theme"]');
-  if (button) {
-    button.setAttribute("aria-checked", String(dark));
-    button.querySelector(".theme-switch-thumb").textContent = dark ? "☾" : "☀";
+  render();
+}
+
+async function guard(work, success) {
+  try {
+    const result = await work();
+    if (success) toast(typeof success === "function" ? success(result) : success);
+    return result;
+  } catch (error) {
+    toast(error.message);
+    return undefined;
   }
 }
 
-function render() {
-  const pages = {
-    Overview: overview,
-    Incidents: () =>
-      heading(
-        role === "Employee" ? "My incidents" : "Incidents",
-        "Search and filter every incident.",
-        createButton("Report incident", "create", "primary"),
-      ) + queue(),
-    "IT services": servicesPage,
-    Technicians: techniciansPage,
-    Reports: reports,
-    "SLA & assignment": settings,
-    "Audit log": auditPage,
-    "Knowledge base": knowledge,
-    Notifications: notifications,
-    Terminal: terminalPage,
-  };
-  getElement("#app").innerHTML =
-    nav() +
-    /* HTML */ `
-      <div class="layout">
-        <header class="topbar">
-          <div class="breadcrumb">
-            Workspace
-            <span style="padding:0 12px">/</span>
-            <strong>${selected ? "Incident detail" : page}</strong>
-          </div>
-          <div class="top-right">
-            <span class="badge">Prototype</span>
-            ${themeToggle()}
-            <label class="role-control">
-              Preview as
-              <select id="role" aria-label="Preview role">
-                ${["Administrator", "Technician", "Employee"]
-                  .map(
-                    (r) => /* HTML */ `
-                      <option ${r === role ? "selected" : ""}>${r}</option>
-                    `,
-                  )
-                  .join("")}
-              </select>
-            </label>
-            <button
-              class="icon-button"
-              data-page="Notifications"
-              aria-label="Open notifications"
-            >
-              Alerts
-              <span class="notification-dot"></span>
-            </button>
-            <span class="avatar" title="${getCurrentUser()}">
-              ${initials(getCurrentUser())}
-            </span>
-          </div>
-        </header>
-        <main class="main">
-          ${selected ? detail() : (pages[page] || overview)()}
-          <footer class="footer">
-            <span>Incident Desk · Local prototype · Shared localhost data</span>
-            <span>
-              ${escapeHtml(getCurrentUser())},
-              ${createButton("Reset demo", "reset", "small")}
-            </span>
-          </footer>
-        </main>
-      </div>
-    `;
+// ---- data loading -----------------------------------------------------------------------
+function listQuery(extra = {}) {
+  const f = S.filters;
+  return query({
+    q: f.q, priority: f.priority, status: f.status, service: f.service, category: f.category, technician: f.technician,
+    sla: f.sla, from: f.from, to: f.to,
+    state: S.tab === "Open" ? "open" : S.tab === "Resolved" ? "closed" : undefined,
+    limit: 200, ...extra,
+  });
+}
+
+async function loadRef() {
+  const [services, categories] = await Promise.all([get("/api/services"), get("/api/categories")]);
+  S.ref.services = services;
+  S.ref.categories = categories;
+  S.ref.technicians = S.user.role === "Administrator" ? await get("/api/technicians") : [];
+}
+
+async function loadChrome() {
+  const [notes, open] = await Promise.all([get("/api/notifications?limit=1"), get("/api/incidents?state=open&limit=1")]);
+  S.unread = notes.unread;
+  S.openCount = open.total;
+}
+
+const loaders = {
+  async Overview() {
+    const unfiltered = !Object.values(S.filters).some(Boolean) && S.tab === "All incidents";
+    const all = await get(`/api/incidents${query({ limit: 200 })}`);
+    S.data.all = all.items;
+    S.data.list = unfiltered ? all : await get(`/api/incidents${listQuery()}`);
+    S.data.workload = S.user.role === "Employee" ? [] : await get("/api/reports/workload");
+  },
+  async Incidents() {
+    S.data.list = await get(`/api/incidents${listQuery()}`);
+    S.data.all = undefined;
+  },
+  async "IT services"() {
+    await loadRef();
+    S.data.serviceStats = await get("/api/reports/services");
+  },
+  async People() {
+    [S.data.users, S.data.workload] = await Promise.all([get("/api/admin/users"), get("/api/reports/workload")]);
+  },
+  async Reports() {
+    const [overview, serviceStats, categoryStats, trend, correlations, slaRisk, violations, workload] = await Promise.all([
+      get("/api/reports/overview"), get("/api/reports/services"), get("/api/reports/categories"), get("/api/reports/trend?days=7"),
+      get("/api/reports/correlations"), get("/api/reports/sla-risk"), get("/api/reports/sla-violations"), get("/api/reports/workload"),
+    ]);
+    Object.assign(S.data, { overview, serviceStats, categoryStats, trend, correlations, slaRisk, violations, workload });
+  },
+  async "SLA & assignment"() {
+    await loadRef();
+    [S.data.policies, S.data.settings] = await Promise.all([get("/api/sla-policies"), get("/api/admin/settings")]);
+  },
+  async "Audit log"() {
+    S.data.audit = await get(`/api/admin/audit${query({ incident: S.filters.auditIncident, action: S.filters.auditAction, limit: 200 })}`);
+  },
+  async "Knowledge base"() {
+    S.data.knowledge = await get("/api/knowledge");
+  },
+  async Notifications() {
+    S.data.notifications = await get(`/api/notifications${query({ channel: S.notifTab === "email" ? "email" : undefined, limit: 100 })}`);
+  },
+  async Terminal() {},
+};
+
+async function loadCurrent() {
+  if (S.selected) S.data.incident = await get(`/api/incidents/${S.selected}`);
+  else await loaders[S.page]?.();
+  await loadChrome();
+}
+
+// Navigate: move the sidebar marker immediately, keep the current content on
+// screen while the next page loads, then reveal it with the entrance animation.
+async function go(page, { filters = {}, tab = "All incidents", selected = null } = {}) {
+  S.page = page;
+  S.filters = filters;
+  S.tab = tab;
+  S.selected = selected;
+  S.data.incident = undefined;
+  if (mounted) renderChrome();
+  else mountLoading();
+  await withLoading(() => guard(loadCurrent));
+  render({ enter: true });
+  if (page === "Terminal") focusTerminal();
+}
+
+async function withLoading(work) {
+  document.body.classList.add("loading");
+  try {
+    return await work();
+  } finally {
+    document.body.classList.remove("loading");
+  }
+}
+
+const openIncident = (id) => go("Incidents", { selected: Number(id), filters: S.filters, tab: S.tab });
+
+// ---- rendering -----------------------------------------------------------------------------
+const pages = {
+  Overview: overview,
+  Incidents: (s) => heading(s, s.user.role === "Employee" ? "My incidents" : "Incidents", "Search and filter every incident.", `<button class="button primary" data-action="create">Report incident</button>`) + incidentQueue(s, { advanced: true }),
+  "IT services": servicesPage,
+  People: peoplePage,
+  Reports: reportsPage,
+  "SLA & assignment": settingsPage,
+  "Audit log": auditPage,
+  "Knowledge base": knowledge,
+  Notifications: notifications,
+  Terminal: terminalPage,
+};
+
+let mounted = false;
+
+const parse = (html) => {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  return template.content;
+};
+
+function mountLoading() {
+  mounted = true;
+  $("#app").innerHTML = shell(S, '<div class="empty">Loading…</div>', theme(), palette(), { intro: true });
+}
+
+// Update only the sidebar and top bar in place so their CSS transitions play.
+function renderChrome() {
+  const next = parse(shell(S, "", theme(), palette()));
+  morph($(".sidebar"), next.querySelector(".sidebar"));
+  morph($(".topbar"), next.querySelector(".topbar"));
+}
+
+function render({ enter = false } = {}) {
+  const app = $("#app");
+  if (!S.user) {
+    mounted = false;
+    app.innerHTML = authScreen({ mode: S.authMode, error: S.authError, theme: theme(), palette: palette(), open: S.menuOpen });
+    bindForms();
+    return;
+  }
+  const body = S.selected ? detail({ ...S }) : (pages[S.page] ?? overview)({ ...S });
+  if (!mounted || !$(".layout")) {
+    mounted = true;
+    app.innerHTML = shell(S, body, theme(), palette(), { intro: true, enter: true });
+  } else {
+    const next = parse(shell(S, body, theme(), palette(), { enter }));
+    morph($(".sidebar"), next.querySelector(".sidebar"));
+    morph($(".topbar"), next.querySelector(".topbar"));
+    $(".main").replaceWith(next.querySelector(".main"));
+  }
+  lastSignature = JSON.stringify([S.data, S.unread, S.openCount]);
   bindForms();
 }
-// Forms and dialogs for creating or updating incidents.
 
-function modal(title, content, onSubmit) {
-  const d = getElement("#modal");
-  d.innerHTML = /* HTML */ `
-    <div class="modal-header">
-      <h2>${title}</h2>
-      <button class="icon-button" data-close aria-label="Close dialog">
-        ×
-      </button>
-    </div>
-    <form id="modal-form" class="modal-body">
-      ${content}
-      <div id="form-error" class="error" role="alert"></div>
-      <div class="modal-foot">
-        <button type="button" class="button" data-close>Cancel</button>
-        <button class="button primary" type="submit">
-          ${title === "Report an incident" ? "Submit incident" : "Save changes"}
-        </button>
-      </div>
-    </form>
-  `;
-  d.querySelectorAll("[data-close]").forEach(
-    (b) => (b.onclick = () => d.close()),
-  );
-  getElement("#modal-form").onsubmit = (e) => {
-    e.preventDefault();
+function focusTerminal() {
+  const log = $("#terminal-log");
+  if (log) log.scrollTop = log.scrollHeight;
+  $("#terminal-input")?.focus({ preventScroll: true });
+}
+
+// ---- dialogs ---------------------------------------------------------------------------------
+function modal(title, content, onSubmit, { submit = "Save changes", wide = false } = {}) {
+  const d = $("#modal");
+  d.innerHTML = `<div class="modal-header"><h2>${title}</h2><button class="icon-button" data-close aria-label="Close dialog">×</button></div><form id="modal-form" class="modal-body">${content}<div id="form-error" class="error" role="alert"></div><div class="modal-foot"><button type="button" class="button" data-close>Cancel</button><button class="button primary" type="submit" id="modal-submit">${submit}</button></div></form>`;
+  d.querySelectorAll("[data-close]").forEach((b) => (b.onclick = () => d.close()));
+  $("#modal-form").onsubmit = async (event) => {
+    event.preventDefault();
+    const submitButton = $("#modal-submit");
+    submitButton.disabled = true;
+    $("#form-error").textContent = "";
     try {
-      onSubmit(new FormData(e.target));
-    } catch (err) {
-      getElement("#form-error").textContent = err.message;
+      await onSubmit(new FormData(event.target), event.target);
+    } catch (error) {
+      $("#form-error").textContent = error.message;
+    } finally {
+      submitButton.disabled = false;
     }
   };
+  d.style.maxWidth = wide ? "min(760px, 94vw)" : "";
   d.showModal();
 }
 
-function create() {
+const closeModal = () => $("#modal").close();
+
+const field = (label, control, hint = "") => `<label class="field">${label}${hint ? `<span class="small-text">${hint}</span>` : ""}${control}</label>`;
+const options = (list, selected) => list.map(([value, label]) => `<option value="${escapeHtml(value)}" ${String(value) === String(selected) ? "selected" : ""}>${escapeHtml(label)}</option>`).join("");
+
+async function afterIncidentChange(result, message) {
+  if (result?.id) S.data.incident = result;
+  await loadChrome();
+  render();
+  if (message) toast(message);
+}
+
+// Report an incident, with a live preview of priority, SLA, technician and duplicates.
+function createIncident() {
+  const services = S.ref.services.filter((x) => x.active);
+  let force = false;
+  let previewTimer;
   modal(
     "Report an incident",
-    /* HTML */ `
-      <label class="field">
-        Short title
-        <input
-          name="title"
-          id="new-title"
-          required
-          minlength="5"
-          maxlength="150"
-          placeholder="e.g. Payment portal is unavailable"
-        />
-      </label>
-      <label class="field">
-        Affected service
-        <select name="service" id="new-service">
-          ${services
-            .map(
-              (s) => /* HTML */ `
-                <option>${s.name}</option>
-              `,
-            )
-            .join("")}
-        </select>
-      </label>
-      <label class="field">
-        What happened?
-        <textarea
-          name="description"
-          required
-          minlength="10"
-          maxlength="5000"
-          placeholder="Describe the issue, error, and affected users..."
-        ></textarea>
-      </label>
-      <label class="field">
-        Suggested improvement
-        <span class="small-text">
-          Optional, propose a change to the existing system
-        </span>
-        <textarea
-          name="proposal"
-          aria-label="Suggested improvement"
-          maxlength="2000"
-          placeholder="e.g. Show a service-status banner before users attempt a payment."
-        ></textarea>
-        <span class="small-text">
-          Your technician can review this separately and choose whether to
-          implement it.
-        </span>
-      </label>
-      <div class="two-fields">
-        <label class="field">
-          Impact
-          <select name="impact" id="new-impact">
-            <option value="1">One person</option>
-            <option value="2">A department</option>
-            <option value="3">Organization wide</option>
-          </select>
-        </label>
-        <label class="field">
-          Urgency
-          <select name="urgency" id="new-urgency">
-            <option value="1">Can wait</option>
-            <option value="2">Work is affected</option>
-            <option value="3">Work has stopped</option>
-          </select>
-        </label>
-      </div>
-      <div class="callout" id="new-preview"></div>
-      <div id="duplicate-preview" style="margin-top:12px"></div>
-    `,
-    (f) => {
-      const service = services.find((s) => s.name === f.get("service"));
-      const title = f.get("title").trim();
-      const description = f.get("description").trim();
-      if (title.length < 5 || description.length < 10) {
-        throw Error("Please provide a title and a useful description.");
-      }
-      const i = {
-        id: Math.max(1023, ...appData.incidents.map((i) => i.id)) + 1,
-        title,
-        description,
-        service: service.name,
-        category: service.category,
-        impact: +f.get("impact"),
-        urgency: +f.get("urgency"),
-        priority: priority(
-          f.get("impact"),
-          f.get("urgency"),
-          service.criticality,
-        ),
-        reporter: getCurrentUser(),
-        created: getCurrentTime(),
-        status: "Assigned",
-        technician: assign(
-          service.category,
-          appData.incidents,
-          appData.strategy,
-        ),
-        acknowledged: null,
-        resolved: null,
-        resolution: "",
-        proposal: f.get("proposal").trim()
-          ? {
-              text: f.get("proposal").trim(),
-              status: "Proposed",
-              reviewer: null,
-              note: "",
-              reviewedAt: null,
-            }
-          : null,
-        notes: [],
-        history: [],
-        escalated: false,
-      };
-      if (!i.technician) {
-        throw Error("No eligible technician is available.");
-      }
-      audit(i, "Incident reported");
-      if (i.proposal) {
-        audit(i, "Improvement proposal submitted");
-      }
-      audit(
-        i,
-        `Classified as ${i.category}; priority calculated as ${i.priority}`,
-      );
-      audit(
-        i,
-        `Assigned to ${i.technician} using ${appData.strategy.toLowerCase()} strategy`,
-      );
-      appData.incidents.unshift(i);
-      notify(i, "Incident created and assigned");
-      save();
-      getElement("#modal").close();
-      selected = i.id;
-      page = "Incidents";
-      render();
-      toast(`INC-${i.id} created and assigned to ${i.technician}`);
-    },
-  );
-  const preview = () => {
-    const s = services.find((s) => s.name === getElement("#new-service").value);
-    getElement("#new-preview").textContent =
-      `Suggested priority: ${priority(getElement("#new-impact").value, getElement("#new-urgency").value, s.criticality)}, Category: ${s.category}, Assignment: ${appData.strategy}`;
-    const ds = duplicates(
-      getElement("#new-title").value,
-      s.name,
-      appData.incidents,
-    );
-    getElement("#duplicate-preview").innerHTML = ds.length
-      ? /* HTML */ `
-          <div class="callout">
-            Possible duplicate: INC-${ds[0].id}: ${escapeHtml(ds[0].title)}
-            <br />
-            <span class="small-text">
-              Compare with the existing incident before submitting a separate
-              report.
-            </span>
-          </div>
-        `
-      : "";
-  };
-  ["#new-title", "#new-service", "#new-impact", "#new-urgency"].forEach((s) =>
-    getElement(s).addEventListener("input", preview),
-  );
-  preview();
-}
-
-function changeState() {
-  const i = getSelectedIncident();
-  const next = nextStatus(i, role);
-  if (!next) {
-    return;
-  }
-  if (next === "Resolved") {
-    modal(
-      "Provide resolution",
-      '<label class="field">Resolution details<textarea name="resolution" required minlength="10" maxlength="3000" placeholder="What was fixed and how was it verified?"></textarea></label>',
-      (f) => {
-        const text = f.get("resolution").trim();
-        if (text.length < 10) {
-          throw Error("Describe the resolution in at least 10 characters.");
+    `${field("Short title", '<input name="title" id="new-title" required minlength="5" maxlength="150" placeholder="e.g. Payment portal is unavailable" />')}
+${field("Affected service", `<select name="serviceId" id="new-service">${options(services.map((x) => [x.id, x.name]), "")}</select>`)}
+${field("What happened?", '<textarea name="description" id="new-description" required minlength="10" maxlength="5000" placeholder="Describe the issue, error, and affected users..."></textarea>')}
+<div class="two-fields">${field("Impact", '<select name="impact" id="new-impact"><option value="1">One person</option><option value="2">A department</option><option value="3">Organization wide</option></select>')}${field("Urgency", '<select name="urgency" id="new-urgency"><option value="1">Can wait</option><option value="2">Work is affected</option><option value="3">Work has stopped</option></select>')}</div>
+<div class="two-fields">${field("How many people are affected?", '<input name="affectedUsers" id="new-users" type="number" min="1" max="1000000" value="1" />')}${field("Category", `<select name="category" id="new-category"><option value="">Detect automatically</option>${options(S.ref.categories.map((x) => [x.name, x.name]), "")}</select>`)}</div>
+${field("Suggested improvement", '<textarea name="proposal" aria-label="Suggested improvement" maxlength="2000" placeholder="e.g. Show a service-status banner before users attempt a payment."></textarea>', "Optional, propose a change to the existing system")}
+<div class="callout" id="new-preview">Fill in the details to see the calculated priority.</div><div id="duplicate-preview" style="margin-top:12px"></div>`,
+    async (f) => {
+      const body = Object.fromEntries(f);
+      body.serviceId = Number(body.serviceId);
+      if (!body.category) delete body.category;
+      if (!body.proposal?.trim()) delete body.proposal;
+      if (force) body.force = true;
+      try {
+        const created = await post("/api/incidents", body);
+        closeModal();
+        S.filters = {};
+        S.tab = "All incidents";
+        S.page = "Incidents";
+        S.selected = created.id;
+        S.data.incident = created;
+        await loadChrome();
+        render();
+        toast(`${created.displayId} created${created.technician ? ` and assigned to ${created.technician.name}` : ". Waiting for an administrator to assign a technician."}`);
+      } catch (error) {
+        if (error.code === "DUPLICATE_INCIDENT") {
+          force = true;
+          $("#modal-submit").textContent = "Submit anyway";
+          const matches = (error.details?.matches ?? []).map((m) => `INC-${Number(m.id)}: ${escapeHtml(m.title)}`).join("<br />");
+          $("#duplicate-preview").innerHTML = `<div class="callout"><strong>You already reported something very similar.</strong><br />${matches}<br /><span class="small-text">Press “Submit anyway” only if this is a different problem.</span></div>`;
+          throw new Error("A very similar open incident of yours already exists.");
         }
-        commitTransition(i, text);
-        getElement("#modal").close();
-      },
-    );
-  } else {
-    commitTransition(i, "");
-  }
-}
-
-function commitTransition(i, note) {
-  const before = i.status;
-  transition(i, role, note, getCurrentTime());
-  audit(i, `${before} → ${i.status}`);
-  notify(i, `Incident ${i.status.toLowerCase()}`);
-  save();
-  render();
-  toast(`INC-${i.id} is now ${i.status.toLowerCase()}.`);
-}
-
-function reassign() {
-  const i = getSelectedIncident();
-  modal(
-    "Change assignment",
-    /* HTML */ `
-      <label class="field">
-        Technician
-        <select name="technician">
-          ${technicians
-            .filter((t) => t.available && t.skills.includes(i.category))
-            .map(
-              (t) => /* HTML */ `
-                <option ${i.technician === t.name ? "selected" : ""}>
-                  ${t.name}
-                </option>
-              `,
-            )
-            .join("")}
-        </select>
-      </label>
-      <div class="callout">
-        ${appData.strategy} recommendation:
-        ${assign(i.category, appData.incidents, appData.strategy) ||
-        "No eligible technician"}
-        <br />
-        Only available technicians with a matching skill are shown.
-      </div>
-    `,
-    (f) => {
-      i.technician = f.get("technician");
-      audit(i, `Assigned to ${i.technician}`);
-      notify(i, "Technician assignment updated");
-      save();
-      getElement("#modal").close();
-      render();
-      toast("Assignment updated.");
+        throw error;
+      }
     },
+    { submit: "Submit incident", wide: true },
   );
-}
-
-function monitor() {
-  let changed = false;
-  for (const i of appData.incidents) {
-    if (
-      active(i) &&
-      !i.escalated &&
-      sla(i, getCurrentTime(), appData.policies).label === "Breached"
-    ) {
-      i.escalated = true;
-      i.history.push({
-        time: getCurrentTime(),
-        actor: "SLA monitor",
-        text: "SLA target breached; escalated to administrator",
+  const refreshPreview = async () => {
+    const title = $("#new-title").value.trim();
+    const description = $("#new-description").value.trim();
+    if (title.length < 5 || description.length < 10) return;
+    try {
+      const p = await post("/api/incidents/preview", {
+        title, description, serviceId: Number($("#new-service").value), impact: Number($("#new-impact").value),
+        urgency: Number($("#new-urgency").value), affectedUsers: Number($("#new-users").value) || 1, category: $("#new-category").value || undefined,
       });
-      notify(i, "SLA breach escalated");
-      changed = true;
+      $("#new-preview").innerHTML = `Suggested priority: <strong>${escapeHtml(p.priority)}</strong> (score ${Number(p.score)}) · Category: ${escapeHtml(p.category)}<br />SLA: respond within ${Number(p.sla.responseMinutes)} min, resolve within ${Number(p.sla.resolutionMinutes)} min<br />${p.recommendedTechnician ? `Recommended technician: ${escapeHtml(p.recommendedTechnician.name)}` : `Assignment: ${escapeHtml(p.assignmentIssue ?? "pending")}`}`;
+      $("#duplicate-preview").innerHTML = p.duplicates.length
+        ? `<div class="callout"><strong>Possible duplicate${p.duplicates.length > 1 ? "s" : ""}</strong><br />${p.duplicates.map((d) => `INC-${Number(d.id)}: ${escapeHtml(d.title)} <span class="small-text">(${Math.round(d.score * 100)}% similar)</span>`).join("<br />")}<br /><span class="small-text">Compare with existing incidents before submitting a separate report.</span></div>`
+        : "";
+    } catch (error) {
+      $("#new-preview").textContent = error.message;
     }
-  }
-  if (changed) {
-    save();
-  }
-  return changed;
-}
-
-function bindForms() {
-  const terminalForm = getElement("#terminal-form");
-  if (terminalForm) {
-    terminalForm.onsubmit = (event) => {
-      event.preventDefault();
-      runTerminalCommand(getElement("#terminal-input").value);
-    };
-    getElement("#terminal-input").onkeydown = (event) => {
-      if (["ArrowUp", "ArrowDown"].includes(event.key)) {
-        event.preventDefault();
-        terminalHistoryIndex = Math.max(
-          0,
-          Math.min(
-            terminalHistory.length,
-            terminalHistoryIndex + (event.key === "ArrowUp" ? -1 : 1),
-          ),
-        );
-        event.target.value = terminalHistory[terminalHistoryIndex] || "";
-      }
-    };
-  }
-
-  const nf = getElement("#note-form");
-  if (nf) {
-    nf.onsubmit = (e) => {
-      e.preventDefault();
-      const f = new FormData(nf);
-      const text = f.get("note").trim();
-      if (!text) {
-        return;
-      }
-      const i = getSelectedIncident();
-      i.notes.push({
-        text,
-        author: getCurrentUser(),
-        time: getCurrentTime(),
-        internal: f.has("internal"),
-      });
-      audit(
-        i,
-        f.has("internal")
-          ? "Internal investigation note added"
-          : "Conversation note added",
-      );
-      save();
-      render();
-      toast("Note added.");
-    };
-  }
-  const pf = getElement("#policy-form");
-  if (pf) {
-    pf.onsubmit = (e) => {
-      e.preventDefault();
-      const f = new FormData(pf);
-      for (const p of Object.keys(appData.policies)) {
-        if (+f.get(p + "-resolution") < +f.get(p + "-response")) {
-          getElement("#policy-error").textContent =
-            "Resolution targets must be at least as long as response targets.";
-          return;
-        }
-      }
-      for (const p of Object.keys(appData.policies)) {
-        appData.policies[p] = {
-          response: +f.get(p + "-response"),
-          resolution: +f.get(p + "-resolution"),
-        };
-      }
-      save();
-      monitor();
-      render();
-      toast("SLA targets updated.");
-    };
+  };
+  for (const id of ["#new-title", "#new-description", "#new-service", "#new-impact", "#new-urgency", "#new-users", "#new-category"]) {
+    $(id).addEventListener("input", () => {
+      clearTimeout(previewTimer);
+      previewTimer = setTimeout(refreshPreview, 300);
+    });
   }
 }
 
-function exportCSV() {
-  const lines = [
-    ["ID", "Title", "Service", "Priority", "Status", "Technician", "Reporter"],
-    ...appData.incidents.map((i) => [
-      "INC-" + i.id,
-      i.title,
-      i.service,
-      i.priority,
-      i.status,
-      i.technician,
-      i.reporter,
-    ]),
-  ];
-  const csv = lines
-    .map((r) =>
-      r
-        .map(
-          (v) =>
-            '"' +
-            String(v ?? "")
-              .replaceAll('"', '""')
-              .replace(/^[=+@-]/, "'$&") +
-            '"',
-        )
-        .join(","),
-    )
-    .join("\r\n");
+function editIncident() {
+  const i = S.data.incident;
+  modal(
+    "Edit incident",
+    `${field("Title", `<input name="title" required minlength="5" maxlength="150" value="${escapeHtml(i.title)}" />`)}${field("Description", `<textarea name="description" required minlength="10" maxlength="5000">${escapeHtml(i.description)}</textarea>`)}<div class="two-fields">${field("Impact", `<select name="impact">${options([[1, "One person"], [2, "A department"], [3, "Organization wide"]], i.impact)}</select>`)}${field("Urgency", `<select name="urgency">${options([[1, "Can wait"], [2, "Work is affected"], [3, "Work has stopped"]], i.urgency)}</select>`)}</div>${field("People affected", `<input name="affectedUsers" type="number" min="1" value="${Number(i.affectedUsers)}" />`)}<p class="small-text">Changing impact, urgency or people affected recalculates priority and SLA deadlines.</p>`,
+    async (f) => {
+      const result = await patch(`/api/incidents/${i.id}`, { title: f.get("title"), description: f.get("description"), impact: Number(f.get("impact")), urgency: Number(f.get("urgency")), affectedUsers: Number(f.get("affectedUsers")) });
+      closeModal();
+      await afterIncidentChange(result, "Incident updated.");
+    },
+  );
+}
+
+async function assignIncident() {
+  const i = S.data.incident;
+  const rec = await guard(() => get(`/api/incidents/${i.id}/recommendations`));
+  if (!rec) return;
+  const recommended = rec.technicians.find((t) => t.id === rec.recommendedTechnicianId);
+  modal(
+    i.technician ? "Change assignment" : "Assign technician",
+    `${field("Technician", `<select name="technicianId"><option value="">Let the ${escapeHtml(rec.strategy)} strategy choose</option>${rec.technicians.filter((t) => t.available).map((t) => `<option value="${Number(t.id)}" ${t.id === i.technician?.id ? "selected" : ""}>${escapeHtml(t.name)}${t.id === rec.recommendedTechnicianId ? " (recommended)" : ""} · ${Number(t.load)}/${Number(t.capacity)} active${t.skillMatch ? "" : " · no matching skill"}</option>`).join("")}</select>`)}
+<div class="callout">${recommended ? `Recommended: <strong>${escapeHtml(recommended.name)}</strong> (${escapeHtml(rec.strategy)} strategy).` : `No automatic recommendation: ${escapeHtml(rec.issue ?? "")}`}</div>
+<div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>Technician</th><th>Skills</th><th>Load</th><th>Exp.</th></tr></thead><tbody>${rec.technicians.map((t) => `<tr><td>${escapeHtml(t.name)}${t.available ? "" : ' <span class="small-text">(unavailable)</span>'}</td><td style="white-space:normal">${escapeHtml(t.skills.join(", "))}</td><td>${Number(t.load)}/${Number(t.capacity)}</td><td>${Number(t.experience)}y</td></tr>`).join("")}</tbody></table></div>`,
+    async (f) => {
+      const result = await post(`/api/incidents/${i.id}/assign`, f.get("technicianId") ? { technicianId: Number(f.get("technicianId")) } : {});
+      closeModal();
+      await afterIncidentChange(result, `Assigned to ${result.technician.name}.`);
+    },
+    { submit: "Assign", wide: true },
+  );
+}
+
+function textModal(title, label, name, endpoint, bodyKey, success, extra = {}) {
+  modal(title, field(label, `<textarea name="${name}" required minlength="5" maxlength="${extra.max ?? 3000}" placeholder="${escapeHtml(extra.placeholder ?? "")}"></textarea>`), async (f) => {
+    const result = await post(endpoint(), { [bodyKey]: f.get(name) });
+    closeModal();
+    await afterIncidentChange(result, success);
+  });
+}
+
+function giveFeedback() {
+  const i = S.data.incident;
+  modal(
+    "Leave feedback",
+    `${field("Rating", `<select name="rating">${options([[5, "5 — Excellent"], [4, "4 — Good"], [3, "3 — Okay"], [2, "2 — Poor"], [1, "1 — Very poor"]], 5)}</select>`)}${field("How was the support?", '<textarea name="comment" maxlength="1000"></textarea>', "Optional")}`,
+    async (f) => {
+      const result = await post(`/api/incidents/${i.id}/feedback`, { rating: Number(f.get("rating")), comment: f.get("comment") });
+      closeModal();
+      await afterIncidentChange(result, "Thank you for your feedback.");
+    },
+  );
+}
+
+function setCategory() {
+  const i = S.data.incident;
+  modal("Change category", field("Category", `<select name="category">${options(S.ref.categories.map((c) => [c.name, c.name]), i.category)}</select>`, "Affects which technicians are considered on reassignment."), async (f) => {
+    const result = await post(`/api/incidents/${i.id}/category`, { category: f.get("category") });
+    closeModal();
+    await afterIncidentChange(result, "Category updated.");
+  });
+}
+
+function decideProposal(decision) {
+  const i = S.data.incident;
+  const title = decision === "Accepted" ? "Accept proposal" : decision === "Declined" ? "Decline proposal" : "Mark implemented";
+  modal(
+    title,
+    `<div class="callout">${escapeHtml(i.proposal.text)}</div>${field(decision === "Implemented" ? "Implementation details" : "Decision note", `<textarea name="note" maxlength="2000" placeholder="${decision === "Declined" ? "Explain why this change is not being taken forward..." : decision === "Implemented" ? "Describe the change you made..." : "Share your next steps..."}"></textarea>`, "Optional, visible to the reporter")}`,
+    async (f) => {
+      const result = await post(`/api/incidents/${i.id}/proposal`, { decision, note: f.get("note") });
+      closeModal();
+      await afterIncidentChange(result, "Proposal decision saved.");
+    },
+  );
+}
+
+// ---- administrator dialogs --------------------------------------------------------------------
+function serviceForm(existing) {
+  modal(
+    existing ? "Edit IT service" : "Add IT service",
+    `${field("Name", `<input name="name" required minlength="2" maxlength="80" value="${escapeHtml(existing?.name ?? "")}" />`)}${field("Category", `<select name="category">${options(S.ref.categories.map((c) => [c.name, c.name]), existing?.category)}</select>`)}<div class="two-fields">${field("Business criticality", `<select name="criticality">${options([[1, "1 — Low"], [2, "2 — Medium"], [3, "3 — Critical"]], existing?.criticality ?? 2)}</select>`)}${field("Owner", `<input name="owner" maxlength="80" value="${escapeHtml(existing?.owner ?? "")}" />`)}</div><label class="check-field"><input type="checkbox" name="active" ${existing?.active === false ? "" : "checked"}> Service is active (can be reported against)</label>`,
+    async (f) => {
+      const body = { name: f.get("name"), category: f.get("category"), criticality: Number(f.get("criticality")), owner: f.get("owner"), active: f.has("active") };
+      if (existing) await patch(`/api/admin/services/${existing.id}`, body);
+      else await post("/api/admin/services", body);
+      closeModal();
+      await loadCurrent();
+      render();
+      toast(existing ? "Service updated." : "Service added.");
+    },
+  );
+}
+
+function categoryForm(existing) {
+  modal(
+    existing ? "Edit category" : "Add category",
+    `${field("Name", `<input name="name" required minlength="2" maxlength="40" value="${escapeHtml(existing?.name ?? "")}" ${existing ? "readonly" : ""} />`)}${field("Description", `<input name="description" maxlength="200" value="${escapeHtml(existing?.description ?? "")}" />`)}${field("Keywords", `<textarea name="keywords" placeholder="wifi, vpn, router">${escapeHtml((existing?.keywords ?? []).join(", "))}</textarea>`, "Comma separated. Used to suggest this category from the incident text.")}`,
+    async (f) => {
+      await post("/api/admin/categories", { name: f.get("name"), description: f.get("description"), keywords: f.get("keywords").split(",").map((k) => k.trim()).filter(Boolean) });
+      closeModal();
+      await loadCurrent();
+      render();
+      toast("Category saved.");
+    },
+  );
+}
+
+const TITLES = ["Technician", "Team Lead", "System Administrator", "IT Manager"];
+
+function userForm(existing) {
+  const role = existing?.role ?? "Employee";
+  modal(
+    existing ? "Edit user" : "Add user",
+    `${field("Full name", `<input name="name" required minlength="2" maxlength="80" value="${escapeHtml(existing?.name ?? "")}" />`)}${field("Email", `<input name="email" type="email" required value="${escapeHtml(existing?.email ?? "")}" />`)}
+${existing ? "" : field("Role", `<select name="role" id="user-role">${options([["Employee", "Employee"], ["Technician", "Technician"], ["Administrator", "Administrator"]], role)}</select>`) + field("Initial password", '<input name="password" type="password" autocomplete="new-password" required minlength="8" />', "8+ characters with a letter and a number")}
+<div id="staff-fields" style="display:${role === "Employee" ? "none" : "block"}">${field("Escalation title", `<select name="title">${options(TITLES.map((t) => [t, t]), existing?.title ?? "Technician")}</select>`, "Used by automatic escalation: Technician → Team Lead → System Administrator → IT Manager")}
+<div id="tech-fields" style="display:${role === "Technician" ? "block" : "none"}"><fieldset class="field"><legend>Skills</legend>${S.ref.categories.map((c) => `<label class="check-field"><input type="checkbox" name="skills" value="${escapeHtml(c.name)}" ${existing?.skills?.includes(c.name) ? "checked" : ""}> ${escapeHtml(c.name)}</label>`).join("")}</fieldset><div class="two-fields">${field("Experience (years)", `<input name="experience" type="number" min="0" max="60" value="${Number(existing?.experience ?? 0)}" />`)}${field("Maximum active incidents", `<input name="maxWorkload" type="number" min="1" max="50" value="${Number(existing?.maxWorkload ?? 5)}" />`)}</div><label class="check-field"><input type="checkbox" name="available" ${existing?.available === false ? "" : "checked"}> Available for new assignments</label></div></div>`,
+    async (f) => {
+      const r = existing?.role ?? f.get("role");
+      const body = { name: f.get("name"), email: f.get("email") };
+      if (r !== "Employee") body.title = f.get("title");
+      if (r === "Technician") Object.assign(body, { skills: f.getAll("skills"), experience: Number(f.get("experience")), maxWorkload: Number(f.get("maxWorkload")), available: f.has("available") });
+      if (existing) await patch(`/api/admin/users/${existing.id}`, body);
+      else await post("/api/admin/users", { ...body, role: r, password: f.get("password") });
+      closeModal();
+      await loadCurrent();
+      await loadRef();
+      render();
+      toast(existing ? "User updated." : "User created.");
+    },
+    { wide: true },
+  );
+  $("#user-role")?.addEventListener("change", (e) => {
+    $("#staff-fields").style.display = e.target.value === "Employee" ? "none" : "block";
+    $("#tech-fields").style.display = e.target.value === "Technician" ? "block" : "none";
+  });
+}
+
+function policyForm() {
+  modal(
+    "Service-specific SLA target",
+    `${field("Service", `<select name="serviceId">${options(S.ref.services.map((x) => [x.id, x.name]), "")}</select>`)}${field("Priority", `<select name="priority">${options(["P1", "P2", "P3", "P4"].map((p) => [p, p]), "P1")}</select>`)}<div class="two-fields">${field("Response (min)", '<input name="responseMinutes" type="number" min="1" required />')}${field("Resolution (min)", '<input name="resolutionMinutes" type="number" min="1" required />')}</div>`,
+    async (f) => {
+      await post("/api/admin/sla-policies", { serviceId: Number(f.get("serviceId")), priority: f.get("priority"), responseMinutes: Number(f.get("responseMinutes")), resolutionMinutes: Number(f.get("resolutionMinutes")) });
+      closeModal();
+      await loadCurrent();
+      render();
+      toast("SLA target saved.");
+    },
+  );
+}
+
+function confirmModal(title, text, onConfirm, label = "Confirm") {
+  modal(title, `<p class="subtitle">${escapeHtml(text)}</p>`, async () => {
+    await onConfirm();
+    closeModal();
+  }, { submit: label });
+}
+
+async function exportCsv() {
+  const rows = [];
+  for (let offset = 0; ; offset += 200) {
+    const page = await get(`/api/incidents${query({ limit: 200, offset })}`);
+    rows.push(...page.items);
+    if (rows.length >= page.total || !page.items.length) break;
+  }
+  const lines = [["ID", "Title", "Service", "Category", "Priority", "Status", "SLA", "Technician", "Reporter", "Created"], ...rows.map((i) => [i.displayId, i.title, i.service.name, i.category, i.priority, i.status, i.sla.label, i.technician?.name ?? "", i.reporter.name, new Date(i.createdAt).toISOString()])];
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "incident-desk-demo.csv";
+  a.href = URL.createObjectURL(new Blob([lines.map((r) => r.map(csvCell).join(",")).join("\r\n")], { type: "text/csv" }));
+  a.download = "incident-desk-incidents.csv";
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
-// Event listeners: connect buttons and form controls to their actions.
-document.addEventListener("click", (e) => {
-  const b = e.target.closest("button");
-  if (!b) {
+
+// ---- terminal -------------------------------------------------------------------------------------
+const terminalHistory = [];
+let terminalIndex = 0;
+
+function newTerminal() {
+  S.terminal = { session: new TerminalSession(createTerminalApi(request, S.user), S.user), busy: false };
+}
+
+async function runTerminalCommand(command) {
+  if (S.terminal.busy) return;
+  S.terminal.busy = true;
+  terminalHistory.push(command);
+  terminalIndex = terminalHistory.length;
+  const input = $("#terminal-input");
+  if (input) input.disabled = true;
+  await S.terminal.session.send(command);
+  S.terminal.busy = false;
+  await guard(loadChrome);
+  render();
+  focusTerminal();
+}
+
+// ---- forms bound after each render ------------------------------------------------------------------
+function bindForms() {
+  const auth = $("#auth-form");
+  if (auth) {
+    auth.onsubmit = async (event) => {
+      event.preventDefault();
+      const f = new FormData(auth);
+      const email = String(f.get("email")).trim();
+      const password = String(f.get("password"));
+      try {
+        if (S.authMode === "register") {
+          await post("/api/auth/register", { name: String(f.get("name")).trim(), email, password });
+        }
+        const login = await post("/api/auth/login", { email, password });
+        setToken(login.token);
+        S.authError = "";
+        await startSession(login.user);
+      } catch (error) {
+        S.authError = error.message;
+        $("#auth-error").textContent = error.message;
+      }
+    };
+  }
+  const terminalForm = $("#terminal-form");
+  if (terminalForm) {
+    terminalForm.onsubmit = (event) => {
+      event.preventDefault();
+      runTerminalCommand($("#terminal-input").value);
+    };
+    $("#terminal-input").onkeydown = (event) => {
+      if (["ArrowUp", "ArrowDown"].includes(event.key)) {
+        event.preventDefault();
+        terminalIndex = Math.max(0, Math.min(terminalHistory.length, terminalIndex + (event.key === "ArrowUp" ? -1 : 1)));
+        event.target.value = terminalHistory[terminalIndex] || "";
+      }
+    };
+  }
+  const noteForm = $("#note-form");
+  if (noteForm) {
+    noteForm.onsubmit = (event) => {
+      event.preventDefault();
+      postNote(new FormData(noteForm));
+    };
+  }
+  const policyFormEl = $("#policy-form");
+  if (policyFormEl) {
+    policyFormEl.onsubmit = async (event) => {
+      event.preventDefault();
+      const f = new FormData(policyFormEl);
+      const error = $("#policy-error");
+      error.textContent = "";
+      for (const p of ["P1", "P2", "P3", "P4"]) {
+        if (Number(f.get(`${p}-resolution`)) < Number(f.get(`${p}-response`))) {
+          error.textContent = "Resolution targets must be at least as long as response targets.";
+          return;
+        }
+      }
+      try {
+        for (const p of ["P1", "P2", "P3", "P4"]) {
+          await post("/api/admin/sla-policies", { priority: p, responseMinutes: Number(f.get(`${p}-response`)), resolutionMinutes: Number(f.get(`${p}-resolution`)) });
+        }
+        await loadCurrent();
+        render();
+        toast("Default SLA targets saved.");
+      } catch (e) {
+        error.textContent = e.message;
+      }
+    };
+  }
+}
+
+async function postNote(f) {
+  const i = S.data.incident;
+  const text = String(f.get("note")).trim();
+  if (!text) return;
+  const staff = i.actions.includes("add-note");
+  const result = await guard(
+    () => (staff ? post(`/api/incidents/${i.id}/notes`, { text, internal: f.has("internal") }) : post(`/api/incidents/${i.id}/respond`, { text })),
+    "Note added.",
+  );
+  if (result) await afterIncidentChange(result);
+}
+
+// ---- click handling -----------------------------------------------------------------------------------
+const incidentCommands = {
+  acknowledge: ["acknowledge", "Incident acknowledged."],
+  start: ["start", "Investigation started."],
+  verify: ["verify", "Resolution verified."],
+  close: ["close", "Incident closed."],
+};
+
+async function handleAction(action, target) {
+  const i = S.data.incident;
+  if (incidentCommands[action] && i) {
+    const [path, message] = incidentCommands[action];
+    const result = await guard(() => post(`/api/incidents/${i.id}/${path}`), message);
+    if (result) await afterIncidentChange(result);
     return;
+  }
+  switch (action) {
+    case "appearance": return toggleMenu();
+    case "logout": return logout();
+    case "create": return createIncident();
+    case "back": return go("Incidents", { filters: S.filters, tab: S.tab });
+    case "clear-filters": S.filters = {}; return reloadList();
+    case "sla-alerts": return go("Incidents", { filters: { sla: "Breached" }, tab: "Open" });
+    case "service-incidents": return go("Incidents", { filters: { service: target.dataset.service } });
+    case "edit": return editIncident();
+    case "assign": return assignIncident();
+    case "set-category": return setCategory();
+    case "feedback": return giveFeedback();
+    case "resolve": return textModal("Provide resolution", "Resolution details", "resolution", () => `/api/incidents/${i.id}/resolve`, "resolution", "Resolution recorded.", { placeholder: "What was fixed and how was it verified?" });
+    case "reopen": return textModal("Reject resolution", "What is still wrong?", "reason", () => `/api/incidents/${i.id}/reopen`, "reason", "Incident reopened.", { max: 1000 });
+    case "request-info": return textModal("Request information", "What do you need from the reporter?", "question", () => `/api/incidents/${i.id}/request-info`, "question", "Information requested.", { max: 2000 });
+    case "proposal-accept": return decideProposal("Accepted");
+    case "proposal-decline": return decideProposal("Declined");
+    case "proposal-implement": return decideProposal("Implemented");
+    case "read-all":
+      await guard(() => post("/api/notifications/read-all"));
+      return refreshView();
+    case "export": return guard(exportCsv);
+    case "service-new": return serviceForm(null);
+    case "service-edit": return serviceForm(S.ref.services.find((x) => x.id === Number(target.dataset.id)));
+    case "category-new": return categoryForm(null);
+    case "category-edit": return categoryForm(S.ref.categories.find((x) => x.name === target.dataset.name));
+    case "category-remove":
+      return confirmModal("Remove category", `Remove “${target.dataset.name}”? Categories used by services or incidents cannot be removed.`, async () => {
+        await del(`/api/admin/categories/${encodeURIComponent(target.dataset.name)}`);
+        await loadCurrent();
+        render();
+        toast("Category removed.");
+      }, "Remove");
+    case "user-new": return userForm(null);
+    case "user-edit": return userForm(S.data.users.find((u) => u.id === Number(target.dataset.id)));
+    case "user-password": {
+      const id = Number(target.dataset.id);
+      return modal("Reset password", field("New password", '<input name="password" type="password" autocomplete="new-password" required minlength="8" />', "The user is signed out everywhere."), async (f) => {
+        await post(`/api/admin/users/${id}/password`, { password: f.get("password") });
+        closeModal();
+        toast("Password reset.");
+      });
+    }
+    case "user-toggle": {
+      const u = S.data.users.find((x) => x.id === Number(target.dataset.id));
+      return confirmModal(u.active ? "Deactivate user" : "Activate user", u.active ? `${u.name} will be signed out and unable to sign in.` : `${u.name} will be able to sign in again.`, async () => {
+        await patch(`/api/admin/users/${u.id}`, { active: !u.active });
+        await loadCurrent();
+        render();
+        toast(u.active ? "User deactivated." : "User activated.");
+      }, u.active ? "Deactivate" : "Activate");
+    }
+    case "policy-new": return policyForm();
+    case "policy-remove":
+      return confirmModal("Remove SLA target", "Incidents of this service will use the default target for new deadlines.", async () => {
+        await del(`/api/admin/sla-policies/${Number(target.dataset.id)}`);
+        await loadCurrent();
+        render();
+      }, "Remove");
+    case "advance":
+    case "run-monitor": {
+      const result = await guard(() => (action === "advance" ? post("/api/admin/simulate-time", { minutes: 10 }) : post("/api/admin/run-sla-monitor")));
+      if (result) {
+        const m = result.monitor ?? result;
+        S.clockResult = `${action === "advance" ? "Clock advanced 10 minutes. " : ""}Monitor checked ${m.checked} incidents: ${m.warnings} warnings, ${m.violations} violations, ${m.escalations} escalations.`;
+        await loadChrome();
+        render();
+      }
+    }
+  }
+}
+
+// The appearance menu is state, but toggling it only touches the menu itself.
+function showMenu(open) {
+  S.menuOpen = open;
+  const menu = $("#appearance-menu");
+  if (!menu) return;
+  menu.hidden = !open;
+  const trigger = $('[data-action="appearance"]');
+  trigger?.setAttribute("aria-expanded", String(open));
+}
+const toggleMenu = () => showMenu(!S.menuOpen);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && S.menuOpen) {
+    showMenu(false);
+    $('[data-action="appearance"]')?.focus();
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (S.menuOpen && !e.target.closest(".appearance")) showMenu(false);
+  const b = e.target.closest("button");
+  if (!b) return;
+  if (b.dataset.close !== undefined) return;
+  if (b.dataset.palettePick) return setPalette(b.dataset.palettePick);
+  if (b.dataset.mode) return setMode(b.dataset.mode);
+  if (b.dataset.authMode) {
+    S.authMode = b.dataset.authMode;
+    S.authError = "";
+    return render();
   }
   if (b.dataset.terminalCommand) {
-    getElement("#terminal-input").value = b.dataset.terminalCommand;
-    getElement("#terminal-input").focus({ preventScroll: true });
+    $("#terminal-input").value = b.dataset.terminalCommand;
+    $("#terminal-input").focus({ preventScroll: true });
     return;
   }
-  if (b.dataset.action === "theme") {
-    toggleTheme();
-    return;
+  if (b.dataset.notifTab) {
+    S.notifTab = b.dataset.notifTab;
+    return void refreshView();
   }
-  if (b.dataset.page) {
-    page = b.dataset.page;
-    if (page === "Terminal") {
-      terminalSession.setRole(role);
-    }
-    selected = null;
-    filters = {};
-    tab = "All incidents";
-    render();
-    return;
-  }
+  if (b.dataset.page) return void go(b.dataset.page);
   if (b.dataset.incident) {
-    openIncident(b.dataset.incident);
-    return;
+    if (b.dataset.read) post(`/api/notifications/${Number(b.dataset.read)}/read`).catch(() => {});
+    return void openIncident(b.dataset.incident);
   }
   if (b.dataset.tab) {
-    tab = b.dataset.tab;
-    render();
-    return;
+    S.tab = b.dataset.tab;
+    return void reloadList();
   }
-  const a = b.dataset.action;
-  switch (a) {
-    case "proposal-accept":
-      decideProposal("Accepted");
-      break;
-    case "proposal-decline":
-      decideProposal("Declined");
-      break;
-    case "proposal-implement":
-      decideProposal("Implemented");
-      break;
-    case "create":
-      create();
-      break;
-    case "back":
-      selected = null;
-      render();
-      break;
-    case "clear-filters":
-      filters = {};
-      render();
-      break;
-    case "sla-alerts":
-      selected = null;
-      page = "Incidents";
-      filters = { sla: "Breached" };
-      tab = "Open";
-      render();
-      break;
-    case "service-incidents":
-      page = "Incidents";
-      filters = { service: b.dataset.service };
-      render();
-      break;
-    case "technician-incidents":
-      page = "Incidents";
-      filters = { technician: b.dataset.technician };
-      render();
-      break;
-    case "transition":
-      changeState();
-      break;
-    case "reassign":
-      if (role === "Administrator") {
-        reassign();
-      }
-      break;
-    case "advance":
-      appData.offset += 600000;
-      monitor();
-      save();
-      render();
-      toast("Demo clock advanced by 10 minutes. SLA checks completed.");
-      break;
-    case "export":
-      exportCSV();
-      break;
-    case "feedback":
-      modal(
-        "Leave feedback",
-        '<label class="field">How was the support?<textarea name="feedback" required maxlength="1000"></textarea></label>',
-        (f) => {
-          const text = f.get("feedback").trim();
-          if (!text) {
-            throw Error("Please enter feedback.");
-          }
-          getSelectedIncident().feedback = text;
-          audit(getSelectedIncident(), "Employee feedback provided");
-          save();
-          getElement("#modal").close();
-          render();
-          toast("Thank you for your feedback.");
-        },
-      );
-      break;
-    case "reset":
-      modal(
-        "Reset demo",
-        '<p class="subtitle">Restore the original sample incidents, notes, targets, and clock. Changes made in this prototype will be cleared.</p>',
-        () => {
-          appData = seed();
-          save();
-          selected = null;
-          page = "Overview";
-          filters = {};
-          tab = "All incidents";
-          getElement("#modal").close();
-          monitor();
-          render();
-          toast("Sample data restored.");
-        },
-      );
-      break;
-  }
+  if (b.dataset.action) handleAction(b.dataset.action, b);
 });
-document.addEventListener("change", (e) => {
-  if (e.target.id === "role") {
-    role = e.target.value;
-    terminalSession.setRole(role);
-    page = "Overview";
-    selected = null;
-    filters = {};
-    tab = "All incidents";
-    render();
-  }
-  if (e.target.dataset.filter) {
-    filters[e.target.dataset.filter] = e.target.value;
-    render();
-  }
-  if (e.target.id === "strategy") {
-    appData.strategy = e.target.value;
-    save();
-    toast("Assignment strategy saved.");
-  }
-});
+
+async function reloadList() {
+  await withLoading(() => guard(loadCurrent));
+  render();
+}
+
+const refreshView = reloadList;
+
+let searchTimer;
 document.addEventListener("input", (e) => {
   if (e.target.id === "search") {
-    filters.q = e.target.value;
-    getElement("#incident-rows").innerHTML = rows();
+    S.filters.q = e.target.value;
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      try {
+        S.data.list = await get(`/api/incidents${listQuery()}`);
+        $("#incident-rows").innerHTML = incidentRows(S);
+      } catch (error) {
+        toast(error.message);
+      }
+    }, 250);
+  }
+  if (e.target.id === "audit-incident") {
+    S.filters.auditIncident = e.target.value.trim();
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(async () => {
+      try {
+        await loaders["Audit log"]();
+        render();
+        const box = $("#audit-incident");
+        box.focus();
+        box.setSelectionRange(box.value.length, box.value.length);
+      } catch (error) {
+        toast(error.message);
+      }
+    }, 350);
   }
 });
-// Connect to shared localhost storage. Import the previous browser demo once.
-async function startApp() {
-  try {
-    let previous;
-    try {
-      previous = JSON.parse(localStorage.getItem(KEY));
-    } catch {}
-    const record = await requestApi("/api/bootstrap", "POST", {
-      data: previous?.version === 1 ? previous : null,
-    });
-    appData = record.data;
-    revision = record.revision;
-    connected = true;
-    monitor();
-  } catch (error) {
-    toast(error.message);
+
+document.addEventListener("change", async (e) => {
+  const t = e.target;
+  if (t.dataset?.filter) {
+    S.filters[t.dataset.filter] = t.value;
+    if (S.page === "People") return render();
+    return reloadList();
   }
-  render();
-  if (page === "Terminal") {
-    getElement("#terminal-input")?.focus({ preventScroll: true });
+  if (t.id === "strategy") {
+    await guard(() => patch("/api/admin/settings", { assignmentStrategy: t.value }), "Assignment strategy saved.");
+    return refreshView();
   }
+  if (t.id === "priority-strategy") {
+    await guard(() => patch("/api/admin/settings", { priorityStrategy: t.value }), "Priority calculation saved.");
+    return refreshView();
+  }
+});
+
+// ---- session -------------------------------------------------------------------------------------------------
+async function startSession(user) {
+  S.user = user;
+  S.data = {};
+  S.filters = {};
+  S.tab = "All incidents";
+  S.selected = null;
+  S.page = location.hash === "#terminal" ? "Terminal" : "Overview";
+  newTerminal();
+  mounted = false;
+  await guard(loadRef);
+  await go(S.page);
 }
-await startApp();
-setInterval(async () => {
-  if (
-    pendingSaves ||
-    getElement("#modal").open ||
-    document.querySelector("textarea")?.value
-  ) {
-    return;
-  }
-  try {
-    const focused = document.activeElement.matches("input,textarea,select");
-    await refreshState(!focused);
-    if (page !== "Terminal" && !focused && monitor()) {
-      render();
+
+async function logout() {
+  await request("POST", "/api/auth/logout").catch(() => {});
+  endSession("You have been signed out.");
+}
+
+function endSession(message) {
+  setToken(null);
+  S.user = null;
+  S.authError = "";
+  render();
+  if (message) toast(message);
+}
+
+handleSessionExpiry(() => endSession("Your session has expired. Please sign in again."));
+
+async function boot() {
+  if (hasToken()) {
+    try {
+      await startSession(await get("/api/auth/me"));
+    } catch {
+      setToken(null);
     }
-  } catch {
-    connected = false;
   }
-}, 2500);
-// Loading screen: keep it up briefly so the animation is seen, then fade it out.
-const splash = getElement("#splash");
-if (splash) {
-  const minimum = new Promise((resolve) => setTimeout(resolve, 1200));
-  const fonts = document.fonts ? document.fonts.ready : Promise.resolve();
-  Promise.all([minimum, fonts]).then(() => {
+  if (!S.user) render();
+  const splash = $("#splash");
+  if (splash) {
+    await Promise.all([new Promise((r) => setTimeout(r, 900)), document.fonts ? document.fonts.ready : Promise.resolve()]);
     splash.classList.add("hide");
     setTimeout(() => splash.remove(), 450);
-  });
+  }
 }
+
+// Quietly refresh the visible page; skip while the user is typing or a dialog is open.
+setInterval(async () => {
+  if (!S.user || $("#modal").open || S.page === "Terminal") return;
+  const active = document.activeElement;
+  if (active?.matches("input,textarea,select") && (active.value || active.tagName === "SELECT")) return;
+  try {
+    await loadCurrent();
+    const signature = JSON.stringify([S.data, S.unread, S.openCount]);
+    if (signature !== lastSignature) render();
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+  }
+}, 8000);
+
+installRipples();
+await boot();
