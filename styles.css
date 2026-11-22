@@ -1684,6 +1684,73 @@ dialog::backdrop {
 .auth-card .tabbar {
   margin-bottom: 18px;
 }
+.auth-card.has-demo {
+  width: min(640px, 100%);
+}
+.demo-box {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 4px dashed var(--line);
+}
+.demo-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 14px;
+  margin-bottom: 12px;
+}
+.demo-head code {
+  background: var(--highlight);
+  color: var(--on-highlight);
+  border: 2px solid var(--outline);
+  padding: 0 8px;
+}
+.demo-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.demo-account {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--soft);
+  color: var(--ink);
+  border: 3px solid var(--outline);
+  box-shadow: 3px 3px 0 var(--outline);
+  transition: transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), background var(--dur-fast);
+}
+.demo-account:hover,
+.demo-account:focus-visible {
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 var(--outline);
+  background: var(--blue-soft);
+}
+.demo-account:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--outline);
+}
+.demo-name {
+  font-size: 24px;
+  line-height: 1.1;
+}
+.demo-role {
+  font-size: 19px;
+  color: var(--muted);
+}
+.demo-email {
+  font-size: 17px;
+  color: var(--link);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 560px) {
+  .demo-grid {
+    grid-template-columns: 1fr;
+  }
+}
 fieldset.field {
   border: 2px solid var(--line);
   padding: 10px 12px;

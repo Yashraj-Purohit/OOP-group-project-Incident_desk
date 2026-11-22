@@ -1,5 +1,12 @@
 import { AppError, AuthorizationError, NotFoundError } from "../errors.js";
+import { DEMO_ACCOUNTS, DEMO_PASSWORD } from "../seed.js";
 import { integer } from "../util.js";
+
+// Shown on the sign-in screen so a reviewer can try the demo accounts. Set
+// INCIDENT_DESK_SHOW_DEMO=0 to hide it (never expose it on a real deployment).
+const demoHint = () => process.env.INCIDENT_DESK_SHOW_DEMO === "0"
+  ? { enabled: false }
+  : { enabled: true, password: DEMO_PASSWORD, accounts: DEMO_ACCOUNTS.map(({ name, email, role, title }) => ({ name, email, role, title: title ?? null })) };
 
 // Declarative route table. `public: true` skips authentication; otherwise the
 // handler receives the authenticated User and each service enforces permissions.
@@ -19,6 +26,7 @@ export function buildRoutes(c) {
         return { token, expiresAt, user: user.toJSON() };
       },
     },
+    { method: "GET", path: "/api/auth/demo", public: true, handler: () => demoHint() },
     { method: "POST", path: "/api/auth/logout", handler: ({ token }) => { auth.logout(token); return none(); } },
     { method: "GET", path: "/api/auth/me", handler: ({ user }) => user.toJSON() },
     { method: "POST", path: "/api/auth/password", handler: ({ user, body }) => { auth.changePassword(user, body?.current, body?.next); return none(); } },

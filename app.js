@@ -20,7 +20,7 @@ const AUDIT_ACTIONS = [
 const S = {
   menuOpen: false, user: null, page: "Overview", selected: null, tab: "All incidents", filters: {}, notifTab: "in-app",
   ref: { services: [], categories: [], technicians: [] }, data: {}, unread: 0, openCount: undefined,
-  advanceMinutes: 10, terminal: null, auditActions: AUDIT_ACTIONS, clockResult: "", authMode: "login", authError: "",
+  advanceMinutes: 10, terminal: null, auditActions: AUDIT_ACTIONS, clockResult: "", authMode: "login", authError: "", demo: null,
 };
 let noticeTimer;
 let lastSignature = "";
@@ -218,7 +218,7 @@ function render({ enter = false } = {}) {
   const app = $("#app");
   if (!S.user) {
     mounted = false;
-    app.innerHTML = authScreen({ mode: S.authMode, error: S.authError, theme: theme(), palette: palette(), open: S.menuOpen });
+    app.innerHTML = authScreen({ mode: S.authMode, error: S.authError, theme: theme(), palette: palette(), open: S.menuOpen, demo: S.demo });
     bindForms();
     return;
   }
@@ -737,6 +737,15 @@ document.addEventListener("click", (e) => {
   if (b.dataset.close !== undefined) return;
   if (b.dataset.palettePick) return setPalette(b.dataset.palettePick);
   if (b.dataset.mode) return setMode(b.dataset.mode);
+  if (b.dataset.demoEmail) {
+    const form = $("#auth-form");
+    if (form && S.demo?.enabled) {
+      form.elements.email.value = b.dataset.demoEmail;
+      form.elements.password.value = S.demo.password;
+      form.querySelector('button[type="submit"]').focus({ preventScroll: true });
+    }
+    return;
+  }
   if (b.dataset.authMode) {
     S.authMode = b.dataset.authMode;
     S.authError = "";
@@ -859,7 +868,10 @@ async function boot() {
       setToken(null);
     }
   }
-  if (!S.user) render();
+  if (!S.user) {
+    S.demo = await get("/api/auth/demo").catch(() => null);
+    render();
+  }
   const splash = $("#splash");
   if (splash) {
     await Promise.all([new Promise((r) => setTimeout(r, 900)), document.fonts ? document.fonts.ready : Promise.resolve()]);

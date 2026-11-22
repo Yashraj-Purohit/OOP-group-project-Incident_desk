@@ -20,12 +20,12 @@ Open **http://localhost:4173** and sign in. The first start creates `.local-data
 | Technician | `asha@`, `ravi@`, `neha@`, `lead@` (Team Lead) `incidentdesk.test` | Work an assigned queue, request information, resolve, review improvement proposals |
 | Administrator | `admin@` (System Administrator), `manager@` (IT Manager) `incidentdesk.test` | Everything: assign, users, services, categories, SLA policies, strategies, reports, audit log |
 
-The shared demo password is in [`backend/seed.js`](backend/seed.js) (override it with `INCIDENT_DESK_DEMO_PASSWORD`). New people can also **Register**; self-registered accounts are always Employees.
+The **sign-in screen lists the demo accounts and the shared password**: click an account to fill the form. The password is also in [`backend/seed.js`](backend/seed.js) (override it with `INCIDENT_DESK_DEMO_PASSWORD`; set `INCIDENT_DESK_SHOW_DEMO=0` to hide the list on the sign-in screen). New people can also **Register**; self-registered accounts are always Employees.
 
 ```sh
 npm run demo        # recording/demo mode: frozen clock, no background monitor, fresh database (see docs/video/SCRIPT.md)
 npm run simulate    # with the app running: fires 8 realistic incidents through the API (compare assignment strategies)
-npm test            # 55 tests: domain rules, services, HTTP API, terminal, UI views
+npm test            # 57 tests: domain rules, services, HTTP API, terminal, UI views
 npm run cli         # sign-in prompt, then the same command line as the Terminal page
 ```
 

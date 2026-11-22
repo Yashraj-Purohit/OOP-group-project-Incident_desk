@@ -110,3 +110,24 @@ test("HTTP: oversized bodies are rejected", async () => {
     assert.ok(response === null || response.status === 413);
   } finally { h.close(); }
 });
+
+test("HTTP: the sign-in screen can list the demo accounts, and the hint can be switched off", async () => {
+  const h = await boot();
+  const previous = process.env.INCIDENT_DESK_SHOW_DEMO;
+  try {
+    const on = await h.call("GET", "/api/auth/demo");
+    assert.equal(on.status, 200, "public: no sign-in needed");
+    assert.equal(on.body.enabled, true);
+    assert.equal(on.body.accounts.length, 8);
+    assert.ok(on.body.accounts.every((a) => a.email.endsWith("@incidentdesk.test") && !("hash" in a) && !("password" in a)));
+    const jordan = on.body.accounts.find((a) => a.email.startsWith("jordan"));
+    const login = await h.call("POST", "/api/auth/login", { body: { email: jordan.email, password: on.body.password } });
+    assert.equal(login.status, 200, "the advertised password really signs in");
+    process.env.INCIDENT_DESK_SHOW_DEMO = "0";
+    assert.deepEqual((await h.call("GET", "/api/auth/demo")).body, { enabled: false });
+  } finally {
+    if (previous === undefined) delete process.env.INCIDENT_DESK_SHOW_DEMO;
+    else process.env.INCIDENT_DESK_SHOW_DEMO = previous;
+    h.close();
+  }
+});
