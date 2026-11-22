@@ -4,7 +4,7 @@
 import { TerminalSession } from "./terminal-session.js";
 import { createTerminalApi } from "./terminal-client.js";
 import { ApiError, del, get, handleSessionExpiry, hasToken, patch, post, query, request, setToken } from "./ui/api.js";
-import { csvCell, escapeHtml } from "./ui/helpers.js";
+import { csvCell, escapeHtml, formatDateTime } from "./ui/helpers.js";
 import { installRipples, morph } from "./ui/fx.js";
 import { auditPage, peoplePage, reportsPage, servicesPage, settingsPage } from "./ui/adminViews.js";
 import { authScreen, detail, heading, incidentQueue, incidentRows, knowledge, notifications, overview, shell, terminalPage } from "./ui/views.js";
@@ -20,7 +20,7 @@ const AUDIT_ACTIONS = [
 const S = {
   menuOpen: false, user: null, page: "Overview", selected: null, tab: "All incidents", filters: {}, notifTab: "in-app",
   ref: { services: [], categories: [], technicians: [] }, data: {}, unread: 0, openCount: undefined,
-  terminal: null, auditActions: AUDIT_ACTIONS, clockResult: "", authMode: "login", authError: "",
+  advanceMinutes: 10, terminal: null, auditActions: AUDIT_ACTIONS, clockResult: "", authMode: "login", authError: "",
 };
 let noticeTimer;
 let lastSignature = "";
@@ -701,10 +701,10 @@ async function handleAction(action, target) {
       }, "Remove");
     case "advance":
     case "run-monitor": {
-      const result = await guard(() => (action === "advance" ? post("/api/admin/simulate-time", { minutes: 10 }) : post("/api/admin/run-sla-monitor")));
+      const result = await guard(() => (action === "advance" ? post("/api/admin/simulate-time", { minutes: S.advanceMinutes }) : post("/api/admin/run-sla-monitor")));
       if (result) {
         const m = result.monitor ?? result;
-        S.clockResult = `${action === "advance" ? "Clock advanced 10 minutes. " : ""}Monitor checked ${m.checked} incidents: ${m.warnings} warnings, ${m.violations} violations, ${m.escalations} escalations.`;
+        S.clockResult = `${action === "advance" ? `Clock advanced ${S.advanceMinutes} min; demo time is now ${formatDateTime(result.now)}. ` : ""}Monitor checked ${m.checked} incidents: ${m.warnings} warnings, ${m.violations} violations, ${m.escalations} escalations.`;
         await loadChrome();
         render();
       }
@@ -807,6 +807,10 @@ document.addEventListener("change", async (e) => {
     S.filters[t.dataset.filter] = t.value;
     if (S.page === "People") return render();
     return reloadList();
+  }
+  if (t.id === "advance-minutes") {
+    S.advanceMinutes = Number(t.value);
+    return;
   }
   if (t.id === "strategy") {
     await guard(() => patch("/api/admin/settings", { assignmentStrategy: t.value }), "Assignment strategy saved.");

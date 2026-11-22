@@ -1,6 +1,8 @@
 # OOP group project: Incident Desk
 
-An IT service management system (I-ITSM) for the OOP group project: incident reporting, prioritisation, technician assignment, SLA monitoring, escalation, notifications, audit trail and reporting, with employee, technician and administrator views in an 8-bit light/dark interface.
+An IT service management system (I-ITSM) for the OOP group project: incident reporting, prioritisation, technician assignment, SLA monitoring, escalation, notifications, audit trail and reporting, with employee, technician and administrator views in an 8-bit interface (five colour palettes, each in light and dark).
+
+**Team:** Shourya Jain (2025A7IS2411H), Yashraj Purohit (2025A7IS2419H), Krishna Hemant Shah (2025ADPS0192H).
 
 ## Quick start
 
@@ -21,7 +23,9 @@ Open **http://localhost:4173** and sign in. The first start creates `.local-data
 The shared demo password is in [`backend/seed.js`](backend/seed.js) (override it with `INCIDENT_DESK_DEMO_PASSWORD`). New people can also **Register**; self-registered accounts are always Employees.
 
 ```sh
-npm test            # 51 tests: domain rules, services, HTTP API, terminal, UI views
+npm run demo        # recording/demo mode: frozen clock, no background monitor, fresh database (see docs/video/SCRIPT.md)
+npm run simulate    # with the app running: fires 8 realistic incidents through the API (compare assignment strategies)
+npm test            # 55 tests: domain rules, services, HTTP API, terminal, UI views
 npm run cli         # sign-in prompt, then the same command line as the Terminal page
 ```
 

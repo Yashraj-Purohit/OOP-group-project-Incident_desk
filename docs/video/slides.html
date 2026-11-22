@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Incident Desk - video slides</title>
+<style>
+  :root {
+    --bg1: #0a1120; --bg2: #14355f; --panel: rgba(255,255,255,.06); --line: rgba(255,255,255,.16);
+    --ink: #eaf0fa; --muted: #a9b6cb; --accent: #ff8a4c; --gold: #ffc857; --green: #3dbe76; --blue: #5b9bff; --red: #ff6b6b;
+    --pixel: "Press Start 2P", "Courier New", monospace;
+    --sans: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    --ease: cubic-bezier(.22, 1, .36, 1);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #05080f; overflow: hidden; font-family: var(--sans); color: var(--ink); }
+  #stage { position: absolute; left: 50%; top: 50%; width: 1920px; height: 1080px; transform-origin: center; background: radial-gradient(1200px 700px at 80% 0%, #1d4f8c 0%, transparent 60%), linear-gradient(160deg, var(--bg2), var(--bg1) 70%); overflow: hidden; }
+  .slide { position: absolute; inset: 0; padding: 70px 100px 90px; opacity: 0; visibility: hidden; transform: translateX(60px); transition: opacity .5s var(--ease), transform .6s var(--ease), visibility 0s .6s; }
+  .slide.active { opacity: 1; visibility: visible; transform: none; transition: opacity .5s var(--ease), transform .6s var(--ease); }
+  .slide.past { transform: translateX(-60px); }
+  .eyebrow { font-family: var(--pixel); font-size: 18px; color: var(--gold); letter-spacing: 1px; margin-bottom: 22px; }
+  h1 { font-family: var(--pixel); font-size: 54px; line-height: 1.35; margin: 0 0 26px; font-weight: 400; }
+  h2 { font-family: var(--pixel); font-size: 38px; line-height: 1.4; margin: 0 0 14px; font-weight: 400; }
+  h3 { font-size: 30px; margin: 0 0 8px; }
+  p, li { font-size: 30px; line-height: 1.4; color: var(--ink); margin: 0 0 12px; }
+  .muted { color: var(--muted); }
+  .sub { font-size: 32px; color: var(--muted); margin: 0 0 40px; max-width: 1500px; }
+  .card { background: var(--panel); border: 2px solid var(--line); padding: 26px 30px; }
+  .grid { display: grid; gap: 22px; }
+  .g2 { grid-template-columns: 1fr 1fr; } .g3 { grid-template-columns: repeat(3, 1fr); }
+  .step { opacity: 0; transform: translateY(26px); transition: opacity .55s var(--ease), transform .65s var(--ease); }
+  .step.shown { opacity: 1; transform: none; }
+  .pop { opacity: 0; transform: scale(.85); transition: opacity .4s var(--ease), transform .5s cubic-bezier(.34,1.56,.64,1); }
+  .pop.shown { opacity: 1; transform: none; }
+  #hud { position: absolute; right: 30px; bottom: 22px; font-family: var(--pixel); font-size: 13px; color: var(--muted); z-index: 20; display: flex; gap: 22px; align-items: center; }
+  #bar { position: absolute; left: 0; bottom: 0; height: 6px; background: var(--accent); width: 0; transition: width .5s var(--ease); z-index: 20; }
+  body.nohud #hud, body.nohud #bar { display: none; }
+  .title-wrap { position: absolute; inset: 0; display: grid; place-content: center; padding: 0 160px; }
+  .title-wrap h1 { font-size: 78px; }
+  .glow { position: absolute; width: 760px; height: 760px; right: -140px; top: -140px; border-radius: 50%; background: radial-gradient(circle, rgba(255,138,76,.35), transparent 65%); animation: float 9s ease-in-out infinite; }
+  @keyframes float { 50% { transform: translate(-40px, 40px) scale(1.08); } }
+  .people span { display: inline-block; font-size: 34px; margin-right: 38px; padding-bottom: 6px; border-bottom: 4px solid var(--accent); }
+  .ps { display: grid; grid-template-columns: 1fr 70px 1fr; align-items: center; gap: 12px; font-size: 28px; padding: 14px 22px; margin-bottom: 14px; border: 2px solid var(--line); background: var(--panel); }
+  .ps .bad { color: #ffb4a2; } .ps .good { color: #9be8b5; } .ps .arr { text-align: center; color: var(--gold); font-size: 34px; }
+  .rb { display: grid; grid-template-columns: 560px 1fr 110px; align-items: center; gap: 22px; margin-bottom: 16px; font-size: 27px; }
+  .rb .track { height: 34px; background: rgba(255,255,255,.08); border: 2px solid var(--line); }
+  .rb .fill { height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--gold)); transition: width 1.2s var(--ease); }
+  .rb b { font-family: var(--pixel); font-size: 18px; color: var(--gold); }
+  .arch { position: relative; height: 760px; }
+  .layer { position: absolute; left: 0; width: 1080px; height: 96px; display: flex; align-items: center; justify-content: space-between; padding: 0 30px; border: 3px solid var(--line); background: var(--panel); font-size: 28px; transition: border-color .3s, background .3s, box-shadow .3s; }
+  .layer small { font-size: 21px; color: var(--muted); }
+  .layer.lit { border-color: var(--gold); background: rgba(255,200,87,.14); box-shadow: 0 0 40px rgba(255,200,87,.25); }
+  .layer b { font-family: var(--pixel); font-size: 17px; color: var(--gold); }
+  .bus { position: absolute; left: 1180px; width: 640px; padding: 22px 26px; border: 3px dashed var(--line); background: var(--panel); font-size: 26px; opacity: .35; transition: all .4s; }
+  .bus.lit { opacity: 1; border-color: var(--green); box-shadow: 0 0 40px rgba(61,190,118,.25); }
+  .dot { position: absolute; left: 1040px; top: 10px; width: 26px; height: 26px; background: var(--accent); box-shadow: 0 0 24px var(--accent); border-radius: 50%; opacity: 0; transition: top .55s var(--ease), opacity .3s; z-index: 5; }
+  .states { position: relative; height: 560px; }
+  .st { position: absolute; width: 208px; height: 84px; display: grid; place-items: center; font-family: var(--pixel); font-size: 15px; border: 3px solid var(--line); background: var(--panel); transition: all .35s var(--ease); }
+  .st.on { border-color: var(--green); background: rgba(61,190,118,.22); transform: translateY(-8px) scale(1.06); box-shadow: 0 14px 40px rgba(61,190,118,.25); }
+  .st.done { border-color: rgba(61,190,118,.6); }
+  .st.bad { border-color: var(--red); background: rgba(255,107,107,.2); animation: shake .5s; }
+  @keyframes shake { 20%, 60% { transform: translateX(-12px); } 40%, 80% { transform: translateX(12px); } }
+  .errbox { position: absolute; left: 50%; bottom: 0; transform: translate(-50%, 30px); opacity: 0; padding: 20px 28px; font-size: 27px; background: rgba(255,107,107,.15); border: 2px solid var(--red); color: #ffd0d0; transition: all .5s var(--ease); white-space: nowrap; }
+  .errbox.shown { opacity: 1; transform: translate(-50%, 0); }
+  svg.links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  svg.links path { fill: none; stroke: var(--line); stroke-width: 3; stroke-dasharray: 8 8; }
+  svg.links path.ok { stroke: var(--green); stroke-dasharray: none; }
+  svg.links path.no { stroke: var(--red); stroke-dasharray: 10 8; }
+  .oop { font-size: 25px; }
+  .oop h3 { font-family: var(--pixel); font-size: 18px; color: var(--gold); margin-bottom: 12px; }
+  .oop code, code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .86em; color: #9fd0ff; }
+  .strat { display: flex; gap: 14px; margin-top: 16px; }
+  .strat span { flex: 1; text-align: center; padding: 14px 6px; font-size: 22px; border: 2px solid var(--line); transition: all .3s; }
+  .strat span.pick { border-color: var(--accent); background: rgba(255,138,76,.2); transform: translateY(-6px); }
+  .tl { position: relative; height: 420px; margin-top: 40px; }
+  .tl .rail { position: absolute; left: 40px; right: 40px; top: 180px; height: 10px; background: rgba(255,255,255,.12); }
+  .tl .prog { position: absolute; left: 40px; top: 180px; height: 10px; width: 0; background: linear-gradient(90deg, var(--green), var(--gold), var(--red)); }
+  .ev { position: absolute; width: 270px; text-align: center; opacity: 0; transform: translateY(14px); transition: all .5s var(--ease); font-size: 24px; }
+  .ev i { display: block; width: 26px; height: 26px; margin: 0 auto 10px; background: var(--gold); transform: rotate(45deg); }
+  .ev.shown { opacity: 1; transform: none; }
+  .ev.warn i { background: var(--gold); } .ev.bad i { background: var(--red); } .ev.ok i { background: var(--green); }
+  .ev b { font-family: var(--pixel); font-size: 15px; display: block; margin-bottom: 6px; }
+  .big { font-family: var(--pixel); font-size: 120px; color: var(--gold); line-height: 1; }
+  .check li { list-style: none; padding-left: 52px; position: relative; }
+  .check li::before { content: "\2713"; position: absolute; left: 0; color: var(--green); font-weight: bold; }
+  ul { padding-left: 0; margin: 0; }
+  .two { display: grid; grid-template-columns: 1.1fr 1fr; gap: 50px; }
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <!-- 1 TITLE -->
+  <section class="slide" data-name="Title">
+    <div class="glow"></div>
+    <div class="title-wrap">
+      <div class="eyebrow step" data-step="1">CS F213 / MAC F212 &middot; OBJECT-ORIENTED PROGRAMMING &middot; 2026-27</div>
+      <h1 class="step" data-step="1">Incident Desk</h1>
+      <p class="sub step" data-step="2" style="font-size:38px">An Intelligent IT Service Management &amp; Incident Resolution System</p>
+      <div class="people step" data-step="3"><span>Shourya</span><span>Krishna</span><span>Yashraj</span></div>
+    </div>
+  </section>
+
+  <!-- 2 PROBLEM -> SOLUTION -->
+  <section class="slide" data-name="Problem">
+    <div class="eyebrow">THE PROBLEM</div>
+    <h2>Managing incidents by hand breaks down at scale</h2>
+    <p class="sub">Hundreds of incidents a day. The brief lists eight failure modes - each one maps to something we built.</p>
+    <div class="ps step" data-step="1"><span class="bad">Delayed response</span><span class="arr">&rarr;</span><span class="good">Auto-assignment + acknowledgement tracking</span></div>
+    <div class="ps step" data-step="2"><span class="bad">Incorrect prioritisation</span><span class="arr">&rarr;</span><span class="good">Priority engine: impact &times; urgency &times; criticality</span></div>
+    <div class="ps step" data-step="3"><span class="bad">Inefficient technician allocation</span><span class="arr">&rarr;</span><span class="good">4 assignment strategies, workload limits</span></div>
+    <div class="ps step" data-step="4"><span class="bad">SLA violations</span><span class="arr">&rarr;</span><span class="good">Live SLA monitor, warnings, auto-escalation</span></div>
+    <div class="ps step" data-step="5"><span class="bad">Duplicate reports &middot; recurring problems</span><span class="arr">&rarr;</span><span class="good">Duplicate detection + incident correlation</span></div>
+    <div class="ps step" data-step="6"><span class="bad">No visibility &middot; incomplete history</span><span class="arr">&rarr;</span><span class="good">Dashboards, reports, full audit trail</span></div>
+  </section>
+
+  <!-- 3 AGENDA / RUBRIC -->
+  <section class="slide" data-name="Agenda" data-on-enter="rubric">
+    <div class="eyebrow">WHAT YOU WILL SEE</div>
+    <h2>Built to the marking scheme (120 marks)</h2>
+    <p class="sub">Most of the video is live demo, because working functionality is half the grade.</p>
+    <div class="rb step" data-step="1"><span>Functionality - 3 live workflows</span><div class="track"><div class="fill" data-w="50"></div></div><b>60</b></div>
+    <div class="rb step" data-step="1"><span>Technical depth - OOP, patterns, API</span><div class="track"><div class="fill" data-w="12.5"></div></div><b>15</b></div>
+    <div class="rb step" data-step="1"><span>System design &amp; architecture</span><div class="track"><div class="fill" data-w="8.3"></div></div><b>10</b></div>
+    <div class="rb step" data-step="1"><span>User experience - 3 role views</span><div class="track"><div class="fill" data-w="8.3"></div></div><b>10</b></div>
+    <div class="rb step" data-step="1"><span>Innovation - beyond the brief</span><div class="track"><div class="fill" data-w="8.3"></div></div><b>10</b></div>
+    <div class="rb step" data-step="1"><span>Documentation &amp; presentation</span><div class="track"><div class="fill" data-w="8.3"></div></div><b>10</b></div>
+    <div class="rb step" data-step="1"><span>Testing &amp; validation</span><div class="track"><div class="fill" data-w="4.2"></div></div><b>5</b></div>
+  </section>
+
+  <!-- 4 ARCHITECTURE -->
+  <section class="slide" data-name="Architecture" data-on-enter="arch-reset" data-steps="7">
+    <div class="eyebrow">SYSTEM ARCHITECTURE</div>
+    <h2>One request, followed end to end</h2>
+    <div class="arch" id="arch">
+      <div class="layer" style="top:50px" data-l="0"><span><b>1</b> &nbsp;Browser UI &middot; Terminal &middot; CLI</span><small>ui/*.js &middot; terminal-session.js</small></div>
+      <div class="layer" style="top:170px" data-l="1"><span><b>2</b> &nbsp;HTTP API</span><small>bearer auth &middot; routes &middot; error mapping</small></div>
+      <div class="layer" style="top:290px" data-l="2"><span><b>3</b> &nbsp;Use-case services</span><small>IncidentService &middot; AdminService &middot; SlaMonitor</small></div>
+      <div class="layer" style="top:410px" data-l="3"><span><b>4</b> &nbsp;Domain model</span><small>Incident &middot; States &middot; Strategies &middot; Users</small></div>
+      <div class="layer" style="top:530px" data-l="4"><span><b>5</b> &nbsp;Repositories</span><small>no SQL outside this layer</small></div>
+      <div class="layer" style="top:650px" data-l="5"><span><b>6</b> &nbsp;SQLite database</span><small>transactions &middot; audit log &middot; sessions</small></div>
+      <div class="dot" id="adot"></div>
+      <div class="bus" style="top:340px" id="bus"><b style="font-family:var(--pixel);font-size:16px;color:var(--green)">EVENT BUS (Observer)</b><br /><br />Every domain event fans out to:<br />1 &nbsp;<b>AuditObserver</b> &rarr; audit log<br />2 &nbsp;<b>NotificationObserver</b> &rarr; in-app + email (simulated)</div>
+      <div class="bus" style="top:120px;border-style:solid;opacity:1" id="tech"><b style="font-family:var(--pixel);font-size:16px;color:var(--gold)">STACK</b><br /><br />Node.js &middot; <code>node:http</code> &middot; <code>node:sqlite</code><br />Vanilla ES-module front end<br />scrypt &middot; zero npm dependencies</div>
+    </div>
+  </section>
+
+  <!-- 5 TECH CHOICES -->
+  <section class="slide" data-name="Tech choices">
+    <div class="eyebrow">TECHNOLOGY SELECTION</div>
+    <h2>Why this stack - and what we gave up</h2>
+    <div class="grid g2">
+      <div class="card step" data-step="1"><h3>JavaScript end to end</h3><p class="muted">One language for server, browser and the terminal client, so the command line and web UI share code.</p></div>
+      <div class="card step" data-step="2"><h3>No framework</h3><p class="muted">The OOP design is ours and visible, not hidden behind annotations. Nothing to install.</p></div>
+      <div class="card step" data-step="3"><h3>SQLite</h3><p class="muted">Embedded, transactional, zero setup. Repositories are an interface, so Postgres is a drop-in swap.</p></div>
+      <div class="card step" data-step="4"><h3>Alternatives considered</h3><p class="muted">Spring Boot + PostgreSQL &middot; Django &middot; React + Express + MongoDB. We chose fewer moving parts to demo reliably.</p></div>
+      <div class="card step" data-step="5"><h3>Limitations (honest)</h3><p class="muted">Single process &middot; login throttle is in memory &middot; simulated email &middot; single-node SQLite writes.</p></div>
+      <div class="card step" data-step="6"><h3>If users grow 100&times;</h3><p class="muted">Stateless API behind a load balancer, Postgres repository, monitor as a separate worker, a real notification queue.</p></div>
+    </div>
+  </section>
+
+  <!-- 6 LIFECYCLE -->
+  <section class="slide" data-name="Lifecycle" data-on-enter="state-reset" data-steps="3">
+    <div class="eyebrow">STATE PATTERN</div>
+    <h2>The lifecycle is enforced by objects, not if-statements</h2>
+    <div class="states" id="states">
+      <svg class="links" viewBox="0 0 1720 560" id="links"></svg>
+      <div class="st" data-s="New" style="left:0;top:80px">NEW</div>
+      <div class="st" data-s="Classified" style="left:256px;top:80px">CLASSIFIED</div>
+      <div class="st" data-s="Assigned" style="left:512px;top:80px">ASSIGNED</div>
+      <div class="st" data-s="Acknowledged" style="left:768px;top:80px">ACKNOWLEDGED</div>
+      <div class="st" data-s="In progress" style="left:1024px;top:80px">IN PROGRESS</div>
+      <div class="st" data-s="Resolved" style="left:1280px;top:80px">RESOLVED</div>
+      <div class="st" data-s="Verified" style="left:1280px;top:290px">VERIFIED</div>
+      <div class="st" data-s="Closed" style="left:1512px;top:290px">CLOSED</div>
+      <div class="errbox" id="err">InvalidTransitionError: an incident that is New cannot move to Closed.</div>
+    </div>
+  </section>
+
+  <!-- 7 OOP MAP -->
+  <section class="slide" data-name="OOP concepts">
+    <div class="eyebrow">OBJECT-ORIENTED DESIGN</div>
+    <h2>Every concept in the brief, mapped to real code</h2>
+    <div class="grid g3 oop">
+      <div class="card pop" data-step="1"><h3>Encapsulation</h3><code>Incident</code> keeps all state in <code>#private</code> fields; changes only through guarded methods.</div>
+      <div class="card pop" data-step="1"><h3>Abstraction</h3><code>IncidentService</code> hides lifecycle, SLA, assignment and events behind use-case methods.</div>
+      <div class="card pop" data-step="2"><h3>Inheritance</h3><code>User</code> &rarr; <code>Employee</code>, <code>Technician</code>, <code>Administrator</code>; <code>AppError</code> &rarr; 14 errors.</div>
+      <div class="card pop" data-step="2"><h3>Polymorphism</h3>Interchangeable strategies, channels and states behind one interface.</div>
+      <div class="card pop" data-step="3"><h3>Interfaces</h3>Abstract bases that throw if unimplemented: <code>AssignmentStrategy</code>, <code>NotificationChannel</code>, repositories.</div>
+      <div class="card pop" data-step="3"><h3>Composition</h3>An <code>Incident</code> <i>has a</i> state object; services are composed of repositories, engine and bus.</div>
+      <div class="card pop" data-step="4"><h3>Association / aggregation</h3>Incident &harr; reporter, technician, service, notes, links, audit.</div>
+      <div class="card pop" data-step="4"><h3>Exception handling</h3>Custom hierarchy: invalid transition, unavailable technician, workload, missing SLA, duplicate&hellip;</div>
+      <div class="card pop" data-step="5"><h3>Collections</h3><code>Map</code> registries, <code>Set</code> permissions &amp; tokens, indexed SQL queries.</div>
+    </div>
+  </section>
+
+  <!-- 8 PATTERNS -->
+  <section class="slide" data-name="Patterns" data-on-enter="strat-reset" data-steps="5">
+    <div class="eyebrow">DESIGN PATTERNS</div>
+    <h2>Five patterns, each solving a real problem</h2>
+    <div class="grid g2 oop">
+      <div class="card step" data-step="1"><h3>STRATEGY</h3>Assignment: swap the algorithm at runtime, no redesign.
+        <div class="strat" id="strat"><span>Skill</span><span>Least loaded</span><span>Experience</span><span>Round robin</span></div></div>
+      <div class="card step" data-step="2"><h3>STATE</h3>Each lifecycle stage knows its legal next stages and the permission needed. Illegal jumps throw.</div>
+      <div class="card step" data-step="3"><h3>OBSERVER</h3><code>EventBus</code>: the domain raises events; audit and notifications subscribe. Add a channel without touching the domain.</div>
+      <div class="card step" data-step="4"><h3>FACTORY</h3><code>UserFactory</code> builds the right user subclass; <code>ChannelFactory</code> builds notification channels.</div>
+      <div class="card step" data-step="5" style="grid-column: span 2"><h3>REPOSITORY</h3>Services depend on repository contracts, never on SQL. Swapping the database touches one layer.</div>
+    </div>
+  </section>
+
+  <!-- 9 INTELLIGENT FEATURES -->
+  <section class="slide" data-name="Intelligence">
+    <div class="eyebrow">INTELLIGENT FEATURES</div>
+    <h2>Seven automated features (brief requires two)</h2>
+    <p class="sub">Rule-based and explainable - the brief explicitly accepts this over ML.</p>
+    <div class="grid g2">
+      <div class="card step" data-step="1"><h3>Duplicate detection</h3><span class="muted">Normalised words + synonyms, so "unable to make payment" matches "payment transaction failing".</span></div>
+      <div class="card step" data-step="2"><h3>Incident correlation</h3><span class="muted">3+ open reports on one service within an hour become one cluster.</span></div>
+      <div class="card step" data-step="3"><h3>Automatic escalation</h3><span class="muted">Technician &rarr; Team Lead &rarr; System Administrator &rarr; IT Manager.</span></div>
+      <div class="card step" data-step="4"><h3>Technician recommendation</h3><span class="muted">Skills, workload, experience, service history.</span></div>
+      <div class="card step" data-step="5"><h3>SLA risk detection</h3><span class="muted">Scores open incidents likely to miss their deadline, with reasons.</span></div>
+      <div class="card step" data-step="6"><h3>Category suggestion &middot; Suggested resolutions</h3><span class="muted">Keyword classifier; past fixes for similar incidents.</span></div>
+    </div>
+  </section>
+
+  <!-- 10 SLA TIMELINE -->
+  <section class="slide" data-name="SLA timeline" data-on-enter="tl-reset" data-steps="2">
+    <div class="eyebrow">SLA MONITORING &amp; ESCALATION</div>
+    <h2>A P1 payment incident, minute by minute</h2>
+    <p class="sub">Payment portal P1: respond in 3 minutes, resolve in 20. Nobody acknowledges.</p>
+    <div class="tl" id="tl">
+      <div class="rail"></div><div class="prog" id="prog"></div>
+      <div class="ev ok" style="left:-30px;top:200px" data-at="0"><i></i><b>0 MIN</b>Created &middot; assigned &middot; notified</div>
+      <div class="ev warn" style="left:440px;top:200px" data-at="1"><i></i><b>3 MIN</b>SLA warning to technician + admins</div>
+      <div class="ev bad" style="left:760px;top:60px" data-at="2"><i></i><b>4 MIN</b>Response violated &rarr; <br />TEAM LEAD</div>
+      <div class="ev bad" style="left:1070px;top:200px" data-at="3"><i></i><b>7 MIN</b>Still no answer &rarr; <br />SYSTEM ADMIN</div>
+      <div class="ev bad" style="left:1420px;top:60px" data-at="4"><i></i><b>10 MIN</b>&rarr; IT MANAGER<br />violation recorded once</div>
+    </div>
+  </section>
+
+  <!-- 11 SECURITY -->
+  <section class="slide" data-name="Security">
+    <div class="eyebrow">SECURITY &amp; ERROR HANDLING</div>
+    <h2>Enforced on the server, not in the screen</h2>
+    <div class="two">
+      <ul class="check">
+        <li class="step" data-step="1">Passwords hashed with <b>scrypt</b>, random salt</li>
+        <li class="step" data-step="1">Random 256-bit session tokens, stored hashed, 8 h expiry</li>
+        <li class="step" data-step="2">Role permissions checked in domain &amp; services</li>
+        <li class="step" data-step="2">Employees cannot see others' incidents (404)</li>
+        <li class="step" data-step="3">Login throttling &middot; input validation &middot; parameterised SQL</li>
+        <li class="step" data-step="3">CSP, Host check, same-origin API, escaped output</li>
+      </ul>
+      <div class="card step" data-step="4"><h3>All 12 failure cases in the brief are typed errors</h3><p class="muted" style="font-size:25px">Invalid login &middot; unauthorised &middot; invalid incident &middot; invalid state transition &middot; technician unavailable &middot; workload exceeded &middot; service not found &middot; missing SLA &middot; duplicate &middot; database failure &middot; network failure &middot; invalid input</p></div>
+    </div>
+  </section>
+
+  <!-- 12 TESTING -->
+  <section class="slide" data-name="Testing" data-on-enter="count">
+    <div class="eyebrow">TESTING &amp; VALIDATION</div>
+    <h2>Automated tests, run with one command</h2>
+    <div class="two" style="margin-top:30px">
+      <div><div class="big" id="count" data-to="55">0</div><p class="muted" style="margin-top:16px">tests passing &middot; <code>npm test</code></p></div>
+      <ul class="check">
+        <li class="step" data-step="1">Normal operations - full lifecycle by role</li>
+        <li class="step" data-step="1">Boundary - SLA thresholds, priority bands, workload limits</li>
+        <li class="step" data-step="2">Invalid input - bad titles, unknown services, XSS payloads</li>
+        <li class="step" data-step="2">Exceptions - illegal transitions, rollback on failure</li>
+        <li class="step" data-step="3">Authorisation - wrong role, other users' incidents</li>
+        <li class="step" data-step="3">Business rules - escalation ladder, duplicates, SLA once-only</li>
+        <li class="step" data-step="4">Accessibility - every colour palette meets WCAG AA</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 13 INNOVATION -->
+  <section class="slide" data-name="Innovation">
+    <div class="eyebrow">BEYOND THE BRIEF</div>
+    <h2>From the Innovation Challenge list</h2>
+    <div class="grid g2">
+      <div class="card step" data-step="1">&#10003; <b>Automated incident escalation</b></div>
+      <div class="card step" data-step="1">&#10003; <b>Incident similarity detection</b></div>
+      <div class="card step" data-step="2">&#10003; <b>Predictive SLA-risk detection</b> (heuristic)</div>
+      <div class="card step" data-step="2">&#10003; <b>Event-driven architecture</b></div>
+      <div class="card step" data-step="3">&#10003; <b>Operational dashboard &amp; analytics</b>, live refresh</div>
+      <div class="card step" data-step="3">&#10003; <b>Command-line &amp; terminal reporting</b></div>
+      <div class="card step" data-step="4">&#10003; Improvement proposals &middot; suggested resolutions &middot; 5 accessible colour palettes</div>
+      <div class="card step" data-step="4">&#10003; Demo clock for verifiable SLA behaviour</div>
+    </div>
+  </section>
+
+  <!-- 14 CLOSING -->
+  <section class="slide" data-name="Closing">
+    <div class="glow"></div>
+    <div class="title-wrap">
+      <div class="eyebrow step" data-step="1">THANK YOU</div>
+      <h1 class="step" data-step="1">Incident Desk</h1>
+      <p class="sub step" data-step="2" style="font-size:36px">Report &rarr; Classify &rarr; Prioritise &rarr; Assign &rarr; Investigate &rarr; Resolve &rarr; Verify &rarr; Close</p>
+      <div class="people step" data-step="3"><span>Shourya</span><span>Krishna</span><span>Yashraj</span></div>
+    </div>
+  </section>
+
+  <div id="bar"></div>
+  <div id="hud"><span>&larr; &rarr; step &middot; F fullscreen &middot; H hide this</span><span id="pos"></span></div>
+</div>
+
+<script>
+(() => {
+  const stage = document.getElementById("stage");
+  const slides = [...document.querySelectorAll(".slide")];
+  const pos = document.getElementById("pos"), bar = document.getElementById("bar");
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const NS = "http://www.w3.org/2000/svg";
+  let cur = 0, step = 0, token = 0;
+
+  const fit = () => (stage.style.transform = `translate(-50%, -50%) scale(${Math.min(innerWidth / 1920, innerHeight / 1080)})`);
+  addEventListener("resize", fit); fit();
+
+  const maxStep = (s) => Math.max(Number(s.dataset.steps || 0), ...$$("[data-step]", s).map((e) => Number(e.dataset.step)), 0);
+
+  function apply() {
+    const s = slides[cur];
+    $$("[data-step]", s).forEach((e) => e.classList.toggle("shown", Number(e.dataset.step) <= step));
+    pos.textContent = `${cur + 1} / ${slides.length}  ·  ${s.dataset.name}`;
+    bar.style.width = `${((cur + (maxStep(s) ? step / maxStep(s) : 1) * 0.999) / slides.length) * 100}%`;
+    hooks[s.dataset.onEnter + ":step"]?.(step, s);
+  }
+
+  function show(i, s = 0) {
+    cur = Math.max(0, Math.min(slides.length - 1, i)); step = s; token++;
+    slides.forEach((el, k) => { el.classList.toggle("active", k === cur); el.classList.toggle("past", k < cur); });
+    hooks[slides[cur].dataset.onEnter]?.(slides[cur]);
+    apply();
+  }
+  const next = () => (step < maxStep(slides[cur]) ? (step++, apply()) : show(cur + 1));
+  const prev = () => (step > 0 ? (step--, apply()) : show(cur - 1, maxStep(slides[Math.max(0, cur - 1)])));
+
+  /* state machine drawing (SVG built with DOM methods) */
+  const pt = { New: [104, 164], Classified: [360, 164], Assigned: [616, 164], Acknowledged: [872, 164], "In progress": [1128, 164], Resolved: [1384, 164], Verified: [1384, 332], Closed: [1616, 332] };
+  const edges = [["New", "Classified"], ["Classified", "Assigned"], ["Assigned", "Acknowledged"], ["Acknowledged", "In progress"], ["In progress", "Resolved"], ["Resolved", "Verified"], ["Verified", "Closed"]];
+  function makePath(a, b, cls) {
+    const [x1, y1] = pt[a], [x2, y2] = pt[b];
+    let d;
+    if (a === "New" && b === "Closed") d = `M ${x1} ${y1 + 42} C ${x1} 520, ${x2} 520, ${x2} ${y2 + 42}`;
+    else if (a === "Resolved" && b === "Verified") d = `M ${x1} ${y1 + 42} L ${x2} ${y2 - 42}`;
+    else d = `M ${x1 + 104} ${y1} L ${x2 - 104} ${y2}`;
+    const p = document.createElementNS(NS, "path");
+    p.setAttribute("d", d);
+    if (cls) p.setAttribute("class", cls);
+    return p;
+  }
+  function drawLinks() { $("#links").replaceChildren(...edges.map(([a, b]) => makePath(a, b, ""))); }
+  function resetStates() {
+    $$(".st").forEach((s) => s.classList.remove("on", "done", "bad"));
+    $$("#links path").forEach((p) => p.classList.remove("ok"));
+    $("#illegal")?.remove();
+    $("#err").classList.remove("shown");
+  }
+  async function playHappy() {
+    const my = token, order = ["New", "Classified", "Assigned", "Acknowledged", "In progress", "Resolved", "Verified", "Closed"];
+    resetStates();
+    for (let i = 0; i < order.length; i++) {
+      if (my !== token) return;
+      $$(".st").forEach((s) => { s.classList.toggle("on", s.dataset.s === order[i]); if (order.indexOf(s.dataset.s) < i) s.classList.add("done"); });
+      if (i > 0) $$("#links path")[i - 1].classList.add("ok");
+      await sleep(750);
+    }
+  }
+  async function tryIllegal() {
+    const my = token; resetStates();
+    $('.st[data-s="New"]').classList.add("on");
+    const p = makePath("New", "Closed", "no"); p.id = "illegal"; $("#links").appendChild(p);
+    await sleep(900); if (my !== token) return;
+    $('.st[data-s="Closed"]').classList.add("bad"); $("#err").classList.add("shown");
+  }
+
+  /* slide-specific animation hooks */
+  const hooks = {
+    rubric(s) { $$(".fill", s).forEach((f) => (f.style.width = "0")); setTimeout(() => $$(".fill", s).forEach((f) => (f.style.width = f.dataset.w * 2 + "%")), 700); },
+
+    "arch-reset"() { $$(".layer").forEach((l) => l.classList.remove("lit")); $("#bus").classList.remove("lit"); $("#adot").style.opacity = 0; },
+    "arch-reset:step"(n) {
+      const dot = $("#adot"), tops = [50, 170, 290, 410, 530, 650];
+      $$(".layer").forEach((l, i) => l.classList.toggle("lit", n >= 1 && n <= 6 ? i === n - 1 : n >= 7 && i === 3));
+      if (n >= 1 && n <= 6) { dot.style.opacity = 1; dot.style.top = tops[n - 1] + 35 + "px"; } else dot.style.opacity = 0;
+      $("#bus").classList.toggle("lit", n >= 7);
+    },
+
+    "state-reset"() { drawLinks(); resetStates(); },
+    "state-reset:step"(n) { if (n === 0 || n === 1) resetStates(); if (n === 2) playHappy(); if (n === 3) tryIllegal(); },
+
+    "strat-reset"() { clearInterval(hooks._st); $$("#strat span").forEach((x) => x.classList.remove("pick")); },
+    "strat-reset:step"(n) {
+      clearInterval(hooks._st);
+      if (n >= 1) { let k = 0; const spans = $$("#strat span"); const tick = () => spans.forEach((x, i) => x.classList.toggle("pick", i === k % 4)); tick(); hooks._st = setInterval(() => { k++; tick(); }, 1100); }
+    },
+
+    "tl-reset"() { $$(".ev").forEach((e) => e.classList.remove("shown")); const p = $("#prog"); p.style.transition = "none"; p.style.width = "0"; },
+    async "tl-reset:step"(n) {
+      if (n < 2) return;
+      const my = token, p = $("#prog"), evs = $$(".ev");
+      evs[0].classList.add("shown");
+      void p.offsetWidth;
+      p.style.transition = "width 5s linear"; p.style.width = "calc(100% - 80px)";
+      for (let i = 1; i < evs.length; i++) { await sleep(1000); if (my !== token) return; evs[i].classList.add("shown"); }
+    },
+
+    count() { const el = $("#count"), to = Number(el.dataset.to), my = token; let v = 0; (function go() { if (my !== token) return; v = Math.min(to, v + 1); el.textContent = v; if (v < to) setTimeout(go, 22); })(); },
+  };
+
+  addEventListener("keydown", (e) => {
+    if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); next(); }
+    else if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); prev(); }
+    else if (e.key === "Home") show(0);
+    else if (e.key === "End") show(slides.length - 1);
+    else if (e.key.toLowerCase() === "f") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    else if (e.key.toLowerCase() === "h") document.body.classList.toggle("nohud");
+    else if (/^[1-9]$/.test(e.key)) show(Number(e.key) - 1);
+  });
+  stage.addEventListener("click", (e) => (e.clientX > innerWidth / 3 ? next() : prev()));
+
+  const q = new URLSearchParams(location.search);
+  show(Number(q.get("slide") || 1) - 1, Number(q.get("step") || 0));
+})();
+</script>
+</body>
+</html>

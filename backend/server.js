@@ -1,6 +1,7 @@
 import { readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createContainer } from "./container.js";
+import { Clock } from "./util.js";
 import { createApiServer } from "./http/server.js";
 import { seedDemoIncidents, seedReferenceData, DEMO_ACCOUNTS } from "./seed.js";
 
@@ -19,15 +20,17 @@ export function startBackend({
   dbPath = process.env.INCIDENT_DESK_DB || here("../.local-data/incident-desk.sqlite"),
   port = Number(process.env.PORT || 4173),
   demoData = process.env.INCIDENT_DESK_DEMO_DATA !== "0",
-  monitorIntervalMs = 30000,
+  monitorIntervalMs = Number(process.env.INCIDENT_DESK_MONITOR_MS ?? 30000),
+  manualClock = process.env.INCIDENT_DESK_CLOCK === "manual",
 } = {}) {
-  const container = createContainer({ dbPath, log: (m) => console.log(m) });
+  const container = createContainer({ dbPath, log: (m) => console.log(m), clock: new Clock({ manual: manualClock }) });
   if (seedReferenceData(container, container.clock.now())) {
     if (demoData) seedDemoIncidents(container);
     console.log(`Seeded ${DEMO_ACCOUNTS.length} demo accounts; emails and the demo password are listed in backend/seed.js.`);
   }
   const server = createApiServer(container, { assets: webAssets(), root: projectRoot });
-  container.slaMonitor.start(monitorIntervalMs);
+  // 0 turns the background monitor off; use "Run monitor now" on the SLA page instead.
+  if (monitorIntervalMs > 0) container.slaMonitor.start(monitorIntervalMs);
   server.on("error", (error) => {
     console.error("Could not start Incident Desk:", error.message);
     process.exitCode = 1;

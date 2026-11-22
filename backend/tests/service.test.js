@@ -392,3 +392,16 @@ test("opening an older database adds the proposal columns without losing data", 
     db.close();
   } finally { rmSync(folder, { recursive: true, force: true }); }
 });
+
+test("a manual clock only moves when advanced (used for repeatable demos)", async () => {
+  const { Clock } = await import("../util.js");
+  const manual = new Clock({ manual: true });
+  const start = manual.now();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(manual.now(), start);
+  assert.equal(manual.advance(5), start + 5 * 60000);
+  const live = new Clock();
+  const before = live.now();
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.ok(live.now() > before);
+});

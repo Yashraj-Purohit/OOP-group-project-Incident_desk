@@ -1,5 +1,7 @@
 {
-  "name": "incident-desk-prototype",
+  "name": "incident-desk",
+  "version": "1.0.0",
+  "description": "Intelligent IT Service Management and Incident Resolution System (OOP group project)",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,7 +9,10 @@
     "api": "node --disable-warning=ExperimentalWarning server.js",
     "test": "node --disable-warning=ExperimentalWarning --test tests/*.test.js backend/tests/*.test.js",
     "test:backend": "node --disable-warning=ExperimentalWarning --test backend/tests/*.test.js",
-    "cli": "node cli.js"
+    "cli": "node cli.js",
+    "demo": "node --disable-warning=ExperimentalWarning scripts/demo.mjs clean",
+    "demo:rich": "node --disable-warning=ExperimentalWarning scripts/demo.mjs rich",
+    "simulate": "node --disable-warning=ExperimentalWarning scripts/simulate.mjs"
   },
   "bin": {
     "incidentdesk": "./cli.js"
