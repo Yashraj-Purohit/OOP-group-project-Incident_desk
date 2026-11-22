@@ -4,8 +4,15 @@ import { ValidationError } from "./errors.js";
 // forward without touching the system clock.
 export class Clock {
   #offset = 0;
+  #base = null;
+
+  // manual: time stands still and only moves when advance() is called, so a
+  // live demo (or recording) controls exactly when SLA deadlines are crossed.
+  constructor({ manual = false } = {}) {
+    if (manual) this.#base = Date.now();
+  }
   now() {
-    return Date.now() + this.#offset;
+    return (this.#base ?? Date.now()) + this.#offset;
   }
   advance(minutes) {
     this.#offset += minutes * 60000;

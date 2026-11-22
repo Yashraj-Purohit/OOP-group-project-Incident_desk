@@ -4,7 +4,7 @@
 import { TerminalSession } from "./terminal-session.js";
 import { createTerminalApi } from "./terminal-client.js";
 import { ApiError, del, get, handleSessionExpiry, hasToken, patch, post, query, request, setToken } from "./ui/api.js";
-import { csvCell, escapeHtml } from "./ui/helpers.js";
+import { csvCell, escapeHtml, formatDateTime } from "./ui/helpers.js";
 import { installRipples, morph } from "./ui/fx.js";
 import { auditPage, peoplePage, reportsPage, servicesPage, settingsPage } from "./ui/adminViews.js";
 import { authScreen, detail, heading, incidentQueue, incidentRows, knowledge, notifications, overview, shell, terminalPage } from "./ui/views.js";
@@ -20,7 +20,7 @@ const AUDIT_ACTIONS = [
 const S = {
   menuOpen: false, user: null, page: "Overview", selected: null, tab: "All incidents", filters: {}, notifTab: "in-app",
   ref: { services: [], categories: [], technicians: [] }, data: {}, unread: 0, openCount: undefined,
-  terminal: null, auditActions: AUDIT_ACTIONS, clockResult: "", authMode: "login", authError: "",
+  advanceMinutes: 10, terminal: null, auditActions: AUDIT_ACTIONS, clockResult: "", authMode: "login", authError: "", demo: null,
 };
 let noticeTimer;
 let lastSignature = "";
@@ -218,7 +218,7 @@ function render({ enter = false } = {}) {
   const app = $("#app");
   if (!S.user) {
     mounted = false;
-    app.innerHTML = authScreen({ mode: S.authMode, error: S.authError, theme: theme(), palette: palette(), open: S.menuOpen });
+    app.innerHTML = authScreen({ mode: S.authMode, error: S.authError, theme: theme(), palette: palette(), open: S.menuOpen, demo: S.demo });
     bindForms();
     return;
   }
@@ -701,10 +701,10 @@ async function handleAction(action, target) {
       }, "Remove");
     case "advance":
     case "run-monitor": {
-      const result = await guard(() => (action === "advance" ? post("/api/admin/simulate-time", { minutes: 10 }) : post("/api/admin/run-sla-monitor")));
+      const result = await guard(() => (action === "advance" ? post("/api/admin/simulate-time", { minutes: S.advanceMinutes }) : post("/api/admin/run-sla-monitor")));
       if (result) {
         const m = result.monitor ?? result;
-        S.clockResult = `${action === "advance" ? "Clock advanced 10 minutes. " : ""}Monitor checked ${m.checked} incidents: ${m.warnings} warnings, ${m.violations} violations, ${m.escalations} escalations.`;
+        S.clockResult = `${action === "advance" ? `Clock advanced ${S.advanceMinutes} min; demo time is now ${formatDateTime(result.now)}. ` : ""}Monitor checked ${m.checked} incidents: ${m.warnings} warnings, ${m.violations} violations, ${m.escalations} escalations.`;
         await loadChrome();
         render();
       }
@@ -737,6 +737,15 @@ document.addEventListener("click", (e) => {
   if (b.dataset.close !== undefined) return;
   if (b.dataset.palettePick) return setPalette(b.dataset.palettePick);
   if (b.dataset.mode) return setMode(b.dataset.mode);
+  if (b.dataset.demoEmail) {
+    const form = $("#auth-form");
+    if (form && S.demo?.enabled) {
+      form.elements.email.value = b.dataset.demoEmail;
+      form.elements.password.value = S.demo.password;
+      form.querySelector('button[type="submit"]').focus({ preventScroll: true });
+    }
+    return;
+  }
   if (b.dataset.authMode) {
     S.authMode = b.dataset.authMode;
     S.authError = "";
@@ -808,6 +817,10 @@ document.addEventListener("change", async (e) => {
     if (S.page === "People") return render();
     return reloadList();
   }
+  if (t.id === "advance-minutes") {
+    S.advanceMinutes = Number(t.value);
+    return;
+  }
   if (t.id === "strategy") {
     await guard(() => patch("/api/admin/settings", { assignmentStrategy: t.value }), "Assignment strategy saved.");
     return refreshView();
@@ -855,7 +868,10 @@ async function boot() {
       setToken(null);
     }
   }
-  if (!S.user) render();
+  if (!S.user) {
+    S.demo = await get("/api/auth/demo").catch(() => null);
+    render();
+  }
   const splash = $("#splash");
   if (splash) {
     await Promise.all([new Promise((r) => setTimeout(r, 900)), document.fonts ? document.fonts.ready : Promise.resolve()]);

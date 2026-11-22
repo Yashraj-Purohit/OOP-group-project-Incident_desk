@@ -131,3 +131,18 @@ test("static assets are served with a strict CSP; code, data and traversal paths
     assert.equal(rebindStatus, 403, "unexpected Host headers are refused (DNS rebinding)");
   } finally { server.close(); }
 });
+
+test("sign-in screen lists the demo accounts and password when the server offers them, and escapes them", () => {
+  const demo = { enabled: true, password: "DemoPass123", accounts: [{ name: "Jordan Lee", email: "jordan@incidentdesk.test", role: "Employee", title: null }, { name: "Sam Rivera", email: "admin@incidentdesk.test", role: "Administrator", title: "System Administrator" }] };
+  const html = authScreen({ demo });
+  assert.match(html, /Demo accounts/);
+  assert.match(html, /DemoPass123/);
+  assert.match(html, /data-demo-email="jordan@incidentdesk\.test"/);
+  assert.match(html, /System Administrator/);
+  assert.doesNotMatch(authScreen({ demo: { enabled: false } }), /Demo accounts/);
+  assert.doesNotMatch(authScreen({}), /Demo accounts/);
+  assert.doesNotMatch(authScreen({ mode: "register", demo }), /Demo accounts/, "not shown while registering");
+  const evil = '"><img src=x onerror=alert(1)>';
+  const escaped = authScreen({ demo: { enabled: true, password: evil, accounts: [{ name: evil, email: evil, role: evil, title: evil }] } });
+  assert.doesNotMatch(escaped, /<img/i);
+});

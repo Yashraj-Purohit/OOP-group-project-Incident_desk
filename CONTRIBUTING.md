@@ -40,6 +40,8 @@ Use GitHub issues for proposed features or bugs. Include the role, screen, steps
 | `backend/http/` | Routes, authentication, error mapping, static files |
 | `backend/seed.js` | Reference data, demo accounts and sample incidents |
 | `backend/tests/`, `tests/` | Backend tests; terminal and UI view tests |
+| `scripts/` | `demo.mjs` (repeatable demo mode) and `simulate.mjs` (fires sample incidents at a running server) |
+| `docs/video/` | Demo video kit: script (`SCRIPT.md`/`.pdf`), `slides.html`, title/thank-you cards and the ten section cards (`section-cards/`) |
 
 Roles are enforced on the server: every API call needs a signed-in user, and each use case checks that user's permissions. Email notifications are simulated.
 

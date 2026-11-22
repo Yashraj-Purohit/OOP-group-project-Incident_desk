@@ -8,7 +8,7 @@ npm run test:backend   # backend tests (domain, services, HTTP)
 npm test               # everything, including terminal and UI view tests
 ```
 
-Requires **Node 22.13+** (built-in SQLite). On first start it seeds categories, IT services, SLA policies, demo accounts and a few incidents. Demo logins are `admin@`, `manager@`, `lead@`, `asha@`, `ravi@`, `neha@`, `jordan@`, `maya@` + `incidentdesk.test`; the shared demo password lives in `backend/seed.js` (override with `INCIDENT_DESK_DEMO_PASSWORD`). Set `INCIDENT_DESK_DB` to change the database path, `PORT` to change the port and `INCIDENT_DESK_DEMO_DATA=0` to skip sample incidents.
+Requires **Node 22.13+** (built-in SQLite). On first start it seeds categories, IT services, SLA policies, demo accounts and a few incidents. Demo logins are `admin@`, `manager@`, `lead@`, `asha@`, `ravi@`, `neha@`, `jordan@`, `maya@` + `incidentdesk.test`; the shared demo password lives in `backend/seed.js` (override with `INCIDENT_DESK_DEMO_PASSWORD`). Set `INCIDENT_DESK_DB` to change the database path, `PORT` to change the port and `INCIDENT_DESK_DEMO_DATA=0` to skip sample incidents. The sign-in screen lists the demo accounts and password through the public `GET /api/auth/demo`; set `INCIDENT_DESK_SHOW_DEMO=0` to turn that off.
 
 ## Layers
 
